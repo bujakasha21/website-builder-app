@@ -2119,3 +2119,17 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 /* logo tile fix */
 /* . */
 .ob-swatch-groups { display: flex; flex-wrap: wrap; gap: 18px 24px; align-items: flex-start; }
+/* Pages panel in the editor's left rail */
+.pg-panel { display: grid; gap: 2px; padding: 12px; }
+.pg-panel .pg-row { border-radius: 10px; }
+.pg-panel .pg-row[aria-current=page] { background: var(--accent-soft, #eaf4d8); }
+/* pages panel */
+/* . */
+/* whole-page live preview on the look screen */
+.ob-full { margin-top: 18px; max-width: 920px; border-radius: 16px; border: 1px solid var(--line); background: #fff; overflow: hidden; }
+.ob-full-bar { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; background: var(--sunken, #eeece6); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.ob-full-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); }
+.ob-full-bar span { margin-left: 8px; }
+.ob-full-scroll { height: 460px; overflow: auto; }
+/* full preview */
+/* . */

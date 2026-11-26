@@ -1,6 +1,6 @@
 "use client";
 import { syncShare } from "@/lib/share";
-import { Puck, Render, usePuck, type Data } from "@puckeditor/core";
+import { blocksPlugin, outlinePlugin, Puck, Render, usePuck, type Data } from "@puckeditor/core";
 import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -77,9 +77,9 @@ function headerLinks(p: Project, fn: (links: Link[]) => Link[]) {
 }
 
 /** which page of the site is being edited, plus adding, renaming and removing pages */
-function PagesMenu() {
+/** every page of the site with go-to, rename, delete and add; used in the header menu and in the left "Pages" panel */
+function PagesList({ close }: { close?: () => void }) {
   const c = useContext(EditorCtx)!;
-  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const pages = c.p.pages ?? [];
   const add = (kind: string, title: string) => {
@@ -90,7 +90,7 @@ function PagesMenu() {
     const draft = buildSubPage(kind, title, { ...c.p, heroImage: hero?.image, gallery: gal?.images }, tpl);
     // the new page goes into the menu bar straight away
     c.mutate([{ op: "createPage", id: uid(), title, slug, content: draft.content }, ...headerLinks(c.p, (l) => [...l, { label: title, href: `/${slug}` }])], `Added page “${title}”`);
-    setAdding(false); setOpen(false);
+    setAdding(false); close?.();
     c.goPage(slug);
   };
   const [del, setDel] = useState<string | null>(null);
@@ -106,46 +106,60 @@ function PagesMenu() {
     if (c.page?.id === pg.id) c.goPage(null);
     c.mutate([{ op: "deletePage", page: pg.id }, ...headerLinks(c.p, (l) => l.filter((x) => x.href !== `/${pg.slug}`))], `Deleted page “${pg.title}”`);
   };
-  return (
-    <div className="pg-menu">
-      <button type="button" className="btn btn-sm pg-cur" style={{ height: 34 }} aria-expanded={open} onClick={() => { setOpen(!open); setAdding(false); }}>
-        <small>Page</small>{c.page?.title ?? "Home"}<i aria-hidden>▾</i>
-      </button>
-      {open ? (
-        <div className="pg-pop rise" role="menu">
-          {adding ? (
-            <>
-              <div className="pg-head">Add a page</div>
-              {PAGE_KINDS.map((k) => <button key={k.id} type="button" role="menuitem" className="pg-kind" onClick={() => add(k.id, k.title)}><b>{k.title}</b><span>{k.note}</span></button>)}
-              <button type="button" className="pg-back" onClick={() => setAdding(false)}>← Back</button>
-            </>
+  return adding ? (
+    <>
+      <div className="pg-head">Add a page</div>
+      {PAGE_KINDS.map((k) => <button key={k.id} type="button" role="menuitem" className="pg-kind" onClick={() => add(k.id, k.title)}><b>{k.title}</b><span>{k.note}</span></button>)}
+      <button type="button" className="pg-back" onClick={() => setAdding(false)}>← Back</button>
+    </>
+  ) : (
+    <>
+      <button type="button" role="menuitem" className="pg-row" aria-current={!c.page ? "page" : undefined} onClick={() => { c.goPage(null); close?.(); }}><b>Home</b><span>/</span></button>
+      {pages.map((pg) => (
+        <div key={pg.id} className="pg-row" aria-current={c.page?.id === pg.id ? "page" : undefined}>
+          {ren?.id === pg.id ? (
+            <form className="pg-ren" onSubmit={(e) => { e.preventDefault(); rename(pg, ren.title); }}><input autoFocus value={ren.title} onChange={(e) => setRen({ id: pg.id, title: e.target.value })} onBlur={() => rename(pg, ren.title)} aria-label="Page name" /></form>
+          ) : del === pg.id ? (
+            <><span className="pg-ask">Delete this page and its menu link?</span><button type="button" className="pg-yes" onClick={() => remove(pg)}>Delete</button><button type="button" className="pg-act" aria-label="Keep the page" onClick={() => setDel(null)}>×</button></>
           ) : (
             <>
-              <button type="button" role="menuitem" className="pg-row" aria-current={!c.page ? "page" : undefined} onClick={() => { c.goPage(null); setOpen(false); }}><b>Home</b><span>/</span></button>
-              {pages.map((pg) => (
-                <div key={pg.id} className="pg-row" aria-current={c.page?.id === pg.id ? "page" : undefined}>
-                  {ren?.id === pg.id ? (
-                    <form className="pg-ren" onSubmit={(e) => { e.preventDefault(); rename(pg, ren.title); }}><input autoFocus value={ren.title} onChange={(e) => setRen({ id: pg.id, title: e.target.value })} onBlur={() => rename(pg, ren.title)} aria-label="Page name" /></form>
-                  ) : del === pg.id ? (
-                    <><span className="pg-ask">Delete this page and its menu link?</span><button type="button" className="pg-yes" onClick={() => remove(pg)}>Delete</button><button type="button" className="pg-act" aria-label="Keep the page" onClick={() => setDel(null)}>×</button></>
-                  ) : (
-                    <>
-                      <button type="button" role="menuitem" onClick={() => { c.goPage(pg.slug); setOpen(false); }}><b>{pg.title}</b><span>/{pg.slug}</span></button>
-                      <button type="button" className="pg-act" title="Rename" aria-label={`Rename ${pg.title}`} onClick={() => setRen({ id: pg.id, title: pg.title })}>✎</button>
-                      <button type="button" className="pg-act" title="Delete" aria-label={`Delete ${pg.title}`} onClick={() => setDel(pg.id)}>×</button>
-                    </>
-                  )}
-                </div>
-              ))}
-              <button type="button" className="pg-add" onClick={() => setAdding(true)}>+ Add a page</button>
-              <p className="pg-note">The menu bar and footer are the same on every page. Publish puts all pages live.</p>
+              <button type="button" role="menuitem" onClick={() => { c.goPage(pg.slug); close?.(); }}><b>{pg.title}</b><span>/{pg.slug}</span></button>
+              <button type="button" className="pg-act" title="Rename" aria-label={`Rename ${pg.title}`} onClick={() => setRen({ id: pg.id, title: pg.title })}>✎</button>
+              <button type="button" className="pg-act" title="Delete" aria-label={`Delete ${pg.title}`} onClick={() => setDel(pg.id)}>×</button>
             </>
           )}
         </div>
-      ) : null}
+      ))}
+      <button type="button" className="pg-add" onClick={() => setAdding(true)}>+ Add a page</button>
+      <p className="pg-note">The menu bar and footer are the same on every page. Publish puts all pages live.</p>
+    </>
+  );
+}
+
+function PagesMenu() {
+  const c = useContext(EditorCtx)!;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pg-menu">
+      <button type="button" className="btn btn-sm pg-cur" style={{ height: 34 }} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <small>Page</small>{c.page?.title ?? "Home"}<i aria-hidden>▾</i>
+      </button>
+      {open ? <div className="pg-pop rise" role="menu"><PagesList close={() => setOpen(false)} /></div> : null}
     </div>
   );
 }
+
+/** the "Pages" panel in Puck's left rail */
+function PagesPanel() {
+  return (
+    <div className="pg-panel" role="menu" aria-label="Pages">
+      <PagesList />
+    </div>
+  );
+}
+const pagesIcon = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 3h9l3 3v12H8z" /><path d="M4 7v14h11" /></svg>;
+// Puck lists its own panels first; a plugin given again moves to the end, so this reads: Layers, Pages, Blocks
+const PLUGINS = [outlinePlugin({ label: "Layers" }), { name: "pages", label: "Pages", icon: pagesIcon, render: PagesPanel }, blocksPlugin()];
 
 function HeaderActions({ children }: { children: React.ReactNode }) {
   const c = useContext(EditorCtx)!;
@@ -287,6 +301,7 @@ export default function Editor() {
           setDone(true);
         }}
         overrides={OVERRIDES}
+        plugins={PLUGINS}
         viewports={VIEWPORTS}
       />
       {error ? <div className="toast-error" role="alert"><span>Not saved: {error}</span><button className="btn btn-sm btn-ghost" onClick={() => setError(null)} aria-label="Dismiss">×</button></div> : null}

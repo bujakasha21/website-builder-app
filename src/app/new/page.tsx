@@ -1,6 +1,6 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, ViewTransition } from "react";
+import { useEffect, useMemo, useState, ViewTransition } from "react";
 import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
 import NewIntro from "@/components/NewIntro";
@@ -15,13 +15,20 @@ import { brandFromBrief, isoModeOf } from "@/lib/brand";
 import { writeCopy } from "@/lib/copy";
 import { saveBriefDraft } from "@/lib/brief";
 import { API_PROVIDERS, EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, needsUnits, ROLES, UNIT_SOURCES, VIBES, type UnitSource, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
-import { addProject, saveProfile, uid, useProfile } from "@/lib/store";
+import { addProject, saveProfile, uid, upsertProject, useProfile } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import type { SiteKind } from "@/doc/schema";
 import type { Project } from "@/lib/types";
 
 type Screen = "role" | "experience" | "purposes" | "mode" | "kind" | "about" | "features" | "units" | "look";
 type Mode = "ai" | "custom";
+
+/** writes the hidden "__preview" project so the look previews show the real logo, apartments and building */
+function PreviewSync({ project }: { project: Project }) {
+  const sig = [project.name, project.accent, project.logo?.length ?? 0, project.units.length, project.floorPlans.length, project.isometry?.shapes.length ?? -1, project.isoMode, project.kind].join("|");
+  useEffect(() => { upsertProject(project); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
 type IsoKind = "test3d" | "svg" | "png" | "none";
 const Building3D = dynamic(() => import("@/components/plan/Building3D"), { ssr: false });
 const ico = (d: string) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -146,20 +153,23 @@ export default function NewSite() {
 
   const tplId = VIBES.find((v) => v.id === b.vibe)?.template ?? "atelier";
   const base = { name: b.name.trim() || "New website", address: address.trim(), zip: zip.trim(), city: city.trim(), type: b.offer ?? "rent", units: [], floorPlans: [] };
-  const createNow = () => {
-    const t = TEMPLATES.find((x) => x.id === tplId) ?? TEMPLATES[0];
+  /** the site as the answers describe it; `id` "__preview" is the hidden project the look previews read logo and apartments from */
+  const makeSite = (id: string, template = tplId): Project => {
+    const t = TEMPLATES.find((x) => x.id === template) ?? TEMPLATES[0];
     const langs = b.languages.length ? b.languages : ["de-CH"];
-    const id = (base.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site") + "-" + uid().slice(0, 4);
     const brand = brandFromBrief(b, t.accent);
     const fb = final();
     const units = fb.units ?? [];
-    const project: Project = {
+    return {
       ...base, units, floorPlans: fb.floorPlans ?? [], isometry: fb.isometry, isoMode: isoModeOf(fb), connector: fb.unitSource === "api" ? fb.connector : undefined, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...fb, units: undefined, isometry: undefined, floorPlans: undefined, start: "blank" }, docVersion: 3, theme: brand.theme,
       uses: b.kind === "commercial" ? ["commercial"] : undefined, logo: brand.logo, logoOnDark: brand.logoOnDark, seo: writeCopy(b, base).seo,
       locale: langs[0], locales: langs.slice(1), accent: brand.accent, template: t.id,
       draft: buildPage({ ...base, units, floorPlans: fb.floorPlans ?? [] }, t.id, fb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
     };
-    addProject(project);
+  };
+  const createNow = () => {
+    const id = (base.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site") + "-" + uid().slice(0, 4);
+    addProject(makeSite(id));
     router.push(`/edit/${id}`);
   };
   /** what goes to Pascal / the editor: the apartments of the chosen source are fixed here */
@@ -372,16 +382,21 @@ export default function NewSite() {
 
           {screen === "look" && (
             <>
+              <PreviewSync project={makeSite("__preview")} />
               <div className="eyebrow">New website</div>
               <h1 className="ob-h">Pick a look</h1>
               <p className="ob-sub">Built live from your answers. Colours, fonts and corners can be changed later in Site settings.</p>
               <div className="ob-grid three" role="radiogroup" aria-label="Look">
                 {VIBES.map((v) => (
                   <div key={v.id} role="radio" tabIndex={0} aria-checked={b.vibe === v.id} aria-label={`${v.label}: ${v.note}`} className={`ob-look ${b.vibe === v.id ? "on" : ""}`} onClick={() => setBrief({ ...b, vibe: v.id })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setBrief({ ...b, vibe: v.id }); } }}>
-                    <span className="ob-look-pv" inert><SitePreview data={buildPage(base, v.template, b)} accent={b.accent ?? TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
+                    <span className="ob-look-pv" inert><SitePreview data={makeSite("__preview", v.template).draft} projectId="__preview" accent={b.accent ?? TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
                     <span className="ob-card-t">{v.label}</span><span className="ob-card-n">{v.note}</span>
                   </div>
                 ))}
+              </div>
+              <div className="ob-full">
+                <div className="ob-full-bar"><i /><i /><i /><span>Whole page, live – scroll through it</span></div>
+                <div className="ob-full-scroll"><SitePreview data={makeSite("__preview").draft} projectId="__preview" accent={b.accent ?? TEMPLATES.find((t) => t.id === tplId)?.accent} width={900} height={5200} /></div>
               </div>
               <div className="ob-group">
                 <div className="ob-group-t">Your logo <small>(optional – Pascal takes the colours from it)</small></div>
