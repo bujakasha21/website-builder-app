@@ -4,9 +4,7 @@ import HomeShell, { USER } from "@/components/HomeShell";
 import ProjectCards from "@/components/ProjectCards";
 import { Loading } from "@/components/shell";
 import { CountUp } from "@/components/Playground";
-import { resetDemo, useDb, useProfile } from "@/lib/store";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { resetDemo, useDb } from "@/lib/store";
 
 const TOOLS = [
   { href: "/new", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></svg>, title: "Website", text: "A project site for a whole building: unit list, isometry, viewings and contact form.", cta: "Start the wizard" },
@@ -16,10 +14,7 @@ const TOOLS = [
 
 export default function Dashboard() {
   const db = useDb();
-  const profile = useProfile();
-  const router = useRouter();
-  // first visit: the short interview comes before anything else
-  useEffect(() => { if (profile === null) router.replace("/new"); }, [profile, router]);
+  // no redirect: the dashboard always opens first; the questions about the person come with "New website"
   const projects = (db?.projects ?? []).filter((p) => !p.id.startsWith("__"));
   const apts = projects.flatMap((p) => p.units.filter((u) => (u.use ?? "apartment") === "apartment"));
   const leads = projects.flatMap((p) => p.leads.map((l) => ({ ...l, project: p.name, pid: p.id }))).sort((a, b) => b.at - a.at);
