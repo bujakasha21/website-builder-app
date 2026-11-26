@@ -31,6 +31,8 @@ export interface Brief {
   logoOnDark?: boolean;
   /** colours read from the logo in code (src/lib/logo.ts), and the one picked as the main colour */
   palette?: string[];
+  /** how many of `palette` were found in the logo; the rest are suggestions that go with it */
+  paletteFromLogo?: number;
   accent?: string;
   /** texts written for this site (by Claude, or by rules); the page generator uses them instead of writing its own */
   copy?: import("./copy").Copy;

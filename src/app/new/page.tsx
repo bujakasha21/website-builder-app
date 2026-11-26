@@ -390,7 +390,7 @@ export default function NewSite() {
                     <div className={`ob-logo-tile ${b.logoOnDark ? "dark" : ""}`}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={b.logo} alt="Your logo" />
-                      <button type="button" onClick={() => setBrief({ ...b, logo: undefined, logoOnDark: undefined, palette: undefined, accent: undefined })} aria-label="Remove logo">×</button>
+                      <button type="button" onClick={() => setBrief({ ...b, logo: undefined, logoOnDark: undefined, palette: undefined, paletteFromLogo: undefined, accent: undefined })} aria-label="Remove logo">×</button>
                     </div>
                   ) : (
                     <label className="ob-logo-drop">
@@ -398,18 +398,25 @@ export default function NewSite() {
                       <input type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" hidden onChange={async (e) => {
                         const f = e.target.files?.[0]; e.target.value = "";
                         if (!f) return;
-                        try { const r = await readLogo(f); setLogoErr(null); setBrief((x) => ({ ...x, kind, features: b.features, logo: r.src, logoOnDark: r.onDark, palette: r.palette, accent: r.palette[0] })); }
+                        try { const r = await readLogo(f); setLogoErr(null); setBrief((x) => ({ ...x, kind, features: b.features, logo: r.src, logoOnDark: r.onDark, palette: r.palette, paletteFromLogo: r.fromLogo, accent: r.fromLogo ? r.palette[0] : undefined })); }
                         catch { setLogoErr("This file could not be read. Use SVG, PNG, JPG or WebP."); }
                       }} />
                     </label>
                   )}
                   {b.palette?.length ? (
-                    <div className="ob-swatch-wrap">
-                      <div className="ob-group-t" style={{ marginBottom: 8 }}>Main colour from your logo</div>
-                      <div className="ob-swatches" role="radiogroup" aria-label="Main colour">
-                        {b.palette.map((c) => <button key={c} type="button" role="radio" aria-checked={b.accent === c} onClick={() => setBrief({ ...b, accent: c })} style={{ background: c }} title={c}><span className="tnum">{c.toUpperCase()}</span></button>)}
-                        <button type="button" role="radio" aria-checked={!b.accent} className="tpl" onClick={() => setBrief({ ...b, accent: undefined })}>Template colour</button>
-                      </div>
+                    <div className="ob-swatch-wrap" role="radiogroup" aria-label="Main colour">
+                      {/* only colours really found in the logo are called logo colours; the rest are labelled as suggestions */}
+                      {(() => {
+                        const n = b.paletteFromLogo ?? b.palette.length;
+                        const sw = (c: string) => <button key={c} type="button" role="radio" aria-checked={b.accent === c} onClick={() => setBrief({ ...b, accent: c })} style={{ background: c }} title={c}><span className="tnum">{c.toUpperCase()}</span></button>;
+                        return (
+                          <div className="ob-swatch-groups">
+                            {n ? <div><div className="ob-group-t" style={{ marginBottom: 8 }}>Main colour from your logo</div><div className="ob-swatches">{b.palette.slice(0, n).map(sw)}</div></div> : <p className="st-note">No clear colour found in the logo (black, white or grey only).</p>}
+                            {b.palette.length > n ? <div><div className="ob-group-t" style={{ marginBottom: 8 }}>Goes well with it</div><div className="ob-swatches">{b.palette.slice(n).map(sw)}</div></div> : null}
+                            <div><div className="ob-group-t" style={{ marginBottom: 8 }}>&nbsp;</div><div className="ob-swatches"><button type="button" role="radio" aria-checked={!b.accent} className="tpl" onClick={() => setBrief({ ...b, accent: undefined })}>Template colour</button></div></div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : null}
                 </div>

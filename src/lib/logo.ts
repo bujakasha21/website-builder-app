@@ -70,7 +70,8 @@ async function svgBitmap(file: File): Promise<{ bmp: HTMLCanvasElement; src: str
   return { bmp: c, src };
 }
 
-export async function readLogo(file: File): Promise<{ src: string; palette: string[]; onDark: boolean }> {
+/** `palette` starts with the `fromLogo` colours actually found in the logo; the rest are matching suggestions */
+export async function readLogo(file: File): Promise<{ src: string; palette: string[]; onDark: boolean; fromLogo: number }> {
   const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
   const svg = isSvg ? await svgBitmap(file) : null;
   const bmp: { width: number; height: number } & CanvasImageSource = svg ? svg.bmp : await createImageBitmap(file);
@@ -119,5 +120,5 @@ export async function readLogo(file: File): Promise<{ src: string; palette: stri
     : ["#2b2926", "#1f5c4a", "#1d3f72", "#7a2e2e"];
   for (const x of extras) if (out.length < 4 && !out.includes(x)) out.push(x);
   // an SVG stays a vector so it is sharp at any size
-  return { src: svg ? svg.src : trimLogo(big, !transparentBg).toDataURL("image/png"), palette: out, onDark };
+  return { src: svg ? svg.src : trimLogo(big, !transparentBg).toDataURL("image/png"), palette: out, onDark, fromLogo: found.length };
 }
