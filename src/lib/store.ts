@@ -1,6 +1,7 @@
 "use client";
 import { useSyncExternalStore } from "react";
 import type { Project } from "./types";
+import type { Profile } from "./profile";
 import { seedProjects } from "./seed";
 import { collectDataUrls, dehydrate, hasRefs, rehydrate } from "@/doc/assets";
 import { migrateAll } from "@/doc/migrate";
@@ -193,3 +194,19 @@ export function resetDemo() {
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
+
+// ── the builder's own profile (who they are, experience): one per browser in this preview ──
+let profile: Profile | null | undefined;
+const profileListeners = new Set<() => void>();
+function loadProfile() {
+  kvGet<Profile>("profile").then((p) => { profile = p ?? null; profileListeners.forEach((l) => l()); }).catch(() => { profile = null; profileListeners.forEach((l) => l()); });
+}
+/** undefined while loading, null when the questions were never answered */
+export function useProfile(): Profile | null | undefined {
+  return useSyncExternalStore((l) => { profileListeners.add(l); if (profile === undefined) loadProfile(); return () => profileListeners.delete(l); }, () => profile, () => undefined);
+}
+export async function saveProfile(p: Profile) {
+  profile = p;
+  profileListeners.forEach((l) => l());
+  await kvPut("profile", p);
+}

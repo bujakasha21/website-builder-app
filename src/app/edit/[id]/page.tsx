@@ -12,7 +12,8 @@ import { BlockBar, VersionGallery } from "@/editor/VariantField";
 import PascalBar from "@/components/PascalBar";
 import TextMenu from "@/editor/pascal/TextMenu";
 import { composePage, findPage, freeSlug, splitPage } from "@/lib/sitedata";
-import { getProject, uid, updateProject, useProject } from "@/lib/store";
+import { getProject, uid, updateProject, useProfile, useProject } from "@/lib/store";
+import { isGuided } from "@/lib/profile";
 import { commit, takeTag } from "@/doc/commit";
 import { autoVersion, saveVersion } from "@/doc/versions";
 import HistoryPanel, { UndoRedo } from "@/editor/HistoryPanel";
@@ -213,6 +214,10 @@ export default function Editor() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState(false);
   const loaded = !!p;
+  // beginners get the calmer editor: advanced options folded away (set in the profile on /new)
+  const profile = useProfile();
+  const guided = profile !== undefined && isGuided(profile);
+  useEffect(() => { document.body.classList.toggle("ui-guided", guided); return () => document.body.classList.remove("ui-guided"); }, [guided]);
   useEffect(() => { if (id && loaded) autoVersion(id, "Opened the editor"); }, [id, loaded]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 

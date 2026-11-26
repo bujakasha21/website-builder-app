@@ -13,6 +13,8 @@ import { planFromFile, planFromUrl } from "@/lib/floorplan/pdf";
 import { placeholder } from "@/lib/placeholders";
 import { addProject, uid, updateProject, useDb, useProject } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
+import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
+import type { Brief } from "@/lib/profile";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
 interface Line { text: string; items?: string[]; done?: boolean }
@@ -95,6 +97,14 @@ export default function AiBuilder() {
   const [found, setFound] = useState<{ plan: FloorPlan; units: Unit[] } | null>(null);
   const [form, setForm] = useState({ name: "", address: "", zip: "", city: "", type: "rent" as "rent" | "sale", image: "" });
   const [step, setStep] = useState(-1); // -1 = not guiding yet, STEPS.length = finished
+  // the interview on /new carries name, city, languages and the features the site should have
+  const [brief, setBrief] = useState<Brief | undefined>(undefined);
+  useEffect(() => {
+    const d = readBriefDraft();
+    if (!d) return;
+    setBrief(d.brief); // eslint-disable-line react-hooks/set-state-in-effect
+    setForm((x) => ({ ...x, name: x.name || d.brief.name, city: x.city || d.city }));
+  }, []);
   const p = useProject(pid ?? undefined);
   const end = useRef<HTMLDivElement>(null);
   const say = async (l: Line, pause = 650) => { setLines((x) => [...x, l]); setTimeout(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 50); await wait(pause); };
@@ -141,12 +151,13 @@ export default function AiBuilder() {
     const tpl = TEMPLATES.find((t) => t.id === suggest(STEPS[0], draftP, ownPhoto).value) ?? TEMPLATES[0];
     const media = { heroImage: form.image || placeholder("exterior", tpl.accent), gallery: [{ src: placeholder("interior", tpl.accent), caption: "Living room (placeholder)" }, { src: placeholder("kitchen", tpl.accent), caption: "Kitchen (placeholder)" }, { src: placeholder("garden", tpl.accent), caption: "Surroundings (placeholder)" }, { src: placeholder("detail", tpl.accent), caption: "Detail (placeholder)" }] };
     const project: Project = {
-      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: "en", accent: tpl.accent, template: tpl.id, isoMode: "3d",
-      draft: buildPage({ ...core, ...media }, tpl.id), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
+      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: brief?.languages[0] ?? "en", locales: brief?.languages.slice(1), kind: brief?.kind, brief: brief ? { ...brief, name: core.name, start: "ai" } : undefined, accent: tpl.accent, template: tpl.id, isoMode: "3d",
+      draft: buildPage({ ...core, ...media }, tpl.id, brief), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
     };
     setBuilding(true);
     await say({ text: "Hard hat on. Building the first version …" }, 1900);
     addProject(project);
+    clearBriefDraft();
     setPid(id);
     setBuilding(false);
     confetti();
@@ -175,7 +186,7 @@ export default function AiBuilder() {
       const gal = blockOf(x, "Gallery")?.props.images as { src: string; caption: string }[] | undefined;
       // a drawn placeholder follows the template colour, an own photo stays
       const heroImage = ownPhoto ? hero : placeholder("exterior", tpl.accent);
-      return { ...x, template: t, accent: tpl.accent, draft: buildPage({ ...x, heroImage, gallery: gal }, t) };
+      return { ...x, template: t, accent: tpl.accent, draft: buildPage({ ...x, heroImage, gallery: gal }, t, x.brief) };
     });
   };
   const pick = (st: Step, value: string) => {
@@ -298,7 +309,7 @@ export default function AiBuilder() {
                       const block = st.key === "template" ? null : blockOf(p, st.key);
                       const tpl = st.key === "template" ? TEMPLATES.find((t) => t.id === o.value)! : null;
                       const data = tpl
-                        ? buildPage({ ...p, heroImage: ownPhoto ? (blockOf(p, "Hero")?.props.image as string) : placeholder("exterior", tpl.accent), gallery: blockOf(p, "Gallery")?.props.images as { src: string; caption: string }[] }, tpl.id)
+                        ? buildPage({ ...p, heroImage: ownPhoto ? (blockOf(p, "Hero")?.props.image as string) : placeholder("exterior", tpl.accent), gallery: blockOf(p, "Gallery")?.props.images as { src: string; caption: string }[] }, tpl.id, p.brief)
                         : ({ root: p.draft.root, zones: {}, content: block ? [{ type: block.type, props: { ...block.props, [st.field!]: o.value, id: `gp-${st.key}-${o.value}` } }] : [] } as Data);
                       return (
                         <div key={o.value} role="option" tabIndex={0} aria-selected={current === o.value} aria-pressed={current === o.value} className="panel gp-card" onClick={() => pick(st, o.value)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(st, o.value); } }}>

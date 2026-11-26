@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, ViewTransition } from "react";
+import { useEffect, useMemo, useState, ViewTransition } from "react";
 import { SitePreview, TopBar } from "@/components/shell";
 import { demoExtras, seedProjects } from "@/lib/seed";
 import Plan2D from "@/components/plan/Plan2D";
@@ -13,6 +13,8 @@ import { groupColor, groupOf, groupsOf, slotsOf } from "@/lib/building";
 import { planFromFile, planFromUrl } from "@/lib/floorplan/pdf";
 import { addProject, uid, upsertProject, useDb } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
+import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
+import { needsUnits, VIBES, type Brief } from "@/lib/profile";
 import type { FloorPlan, Project, TemplateId, Unit, UnitUse } from "@/lib/types";
 
 const Building3D = dynamic(() => import("@/components/plan/Building3D"), { ssr: false });
@@ -150,10 +152,20 @@ export default function Wizard() {
   const db = useDb();
   const [step, setStep] = useState(0);
   const [adv, setAdv] = useState(false);
-  const flow = adv ? STEPS.map((_, i) => i) : SIMPLE;
+  // the interview on /new: name, city, languages, look and features carry over; sites without apartments skip those steps
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const property = !brief || needsUnits(brief);
+  const flow = (adv ? STEPS.map((_, i) => i) : SIMPLE).filter((i) => property || (STEPS[i] !== "Apartments" && STEPS[i] !== "Building"));
   const at = Math.max(0, flow.indexOf(step));
   const go = (d: number) => setStep(flow[Math.max(0, Math.min(flow.length - 1, at + d))]);
   const [f, setF] = useState({ name: "", uses: ["apartment"] as UnitUse[], type: "rent" as "rent" | "sale", address: "", zip: "", city: "", accent: SWATCHES[0], logo: "", logoOnDark: false, locale: "en", source: "file" as "file" | "api" | "manual" | "demo", provider: "wincasa", apiUrl: "", apiRef: "", template: "atelier" as TemplateId });
+  useEffect(() => {
+    const d = readBriefDraft();
+    if (!d) return;
+    const vibe = VIBES.find((v) => v.id === d.brief.vibe);
+    setBrief(d.brief); // eslint-disable-line react-hooks/set-state-in-effect
+    setF((x) => ({ ...x, name: d.brief.name, city: d.city || x.city, locale: d.brief.languages[0] ?? x.locale, template: vibe?.template ?? x.template, accent: TEMPLATES.find((t) => t.id === vibe?.template)?.accent ?? x.accent, uses: d.brief.kind === "commercial" ? ["commercial"] : x.uses }));
+  }, []);
   const [units, setUnits] = useState<Unit[]>([]);
   const [fileNote, setFileNote] = useState("");
   const [palette, setPalette] = useState<string[]>([]);
@@ -208,16 +220,18 @@ export default function Wizard() {
       isometry: iso ?? undefined,
       isoMode: iso ? "2d" : plan ? "3d" : undefined,
       connector: f.source === "api" ? { provider: f.provider, baseUrl: f.apiUrl, projectRef: f.apiRef } : undefined,
-      draft: buildPage(base, f.template), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
+      kind: brief?.kind, brief: brief ? { ...brief, name: f.name, start: "steps" } : undefined, locales: brief ? brief.languages.filter((l) => l !== f.locale) : undefined,
+      draft: buildPage(base, f.template, brief ?? undefined), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
     };
   };
   const create = () => {
     const id = (f.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project") + "-" + uid().slice(0, 4);
     addProject(makeProject(id));
+    clearBriefDraft();
     router.push(`/edit/${id}`);
   };
   const openPreview = (tpl: TemplateId) => {
-    upsertProject({ ...makeProject("__preview"), template: tpl, draft: buildPage(base, tpl) });
+    upsertProject({ ...makeProject("__preview"), template: tpl, draft: buildPage(base, tpl, brief ?? undefined) });
     setTimeout(() => setPreview({ tpl, device: "desktop" }), 350); // let the store reach the preview frame
   };
   const loadIso = (text: string) => {
@@ -461,7 +475,7 @@ export default function Wizard() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {TEMPLATES.map((t) => (
                   <div key={t.id} role="button" tabIndex={0} onClick={() => set({ template: t.id })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); set({ template: t.id }); } }} aria-pressed={f.template === t.id} className={`panel overflow-hidden text-left cursor-pointer transition-all ${f.template === t.id ? "border-ink" : "hover:border-line-strong"}`} style={{ transform: f.template === t.id ? "translateY(-2px)" : "none" }}>
-                    <SitePreview data={buildPage(base, t.id)} accent={f.accent} width={264} height={330} />
+                    <SitePreview data={buildPage(base, t.id, brief ?? undefined)} accent={f.accent} width={264} height={330} />
                     <div className="p-3 border-t border-line flex items-end justify-between gap-2"><div><div className="font-semibold">{t.name}</div><div className="text-muted text-[13px]">{t.note}</div></div><button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); openPreview(t.id); }}>Preview</button></div>
                   </div>
                 ))}
@@ -486,7 +500,7 @@ export default function Wizard() {
         <div role="dialog" aria-modal aria-label="Template preview" className="rise" style={{ position: "fixed", inset: 0, zIndex: 80, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
           <div className="h-14 border-b border-line bg-surface flex items-center px-6 gap-4 shrink-0">
             <span className="eyebrow">Preview</span>
-            <Seg value={preview.tpl} onChange={(v) => { const tpl = v as TemplateId; upsertProject({ ...makeProject("__preview"), template: tpl, draft: buildPage(base, tpl) }); setPreview({ ...preview, tpl }); }} options={TEMPLATES.map((t) => [t.id, t.name] as const)} />
+            <Seg value={preview.tpl} onChange={(v) => { const tpl = v as TemplateId; upsertProject({ ...makeProject("__preview"), template: tpl, draft: buildPage(base, tpl, brief ?? undefined) }); setPreview({ ...preview, tpl }); }} options={TEMPLATES.map((t) => [t.id, t.name] as const)} />
             <Seg value={preview.device} onChange={(v) => setPreview({ ...preview, device: v as "desktop" | "mobile" })} options={[["desktop", "Desktop"], ["mobile", "Mobile"]]} />
             <span className="flex-1" />
             <button className="btn" onClick={() => setPreview(null)}>Close</button>

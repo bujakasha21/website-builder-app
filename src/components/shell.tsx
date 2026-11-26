@@ -25,7 +25,7 @@ export function SitePreview({ data, projectId, accent, width = 320, height = 220
   return (
     <div style={{ width, height, overflow: "hidden", position: "relative", background: "#fbfaf8" }} aria-hidden>
       <div style={{ width: 1280, transform: `scale(${k})`, transformOrigin: "0 0", pointerEvents: "none", ["--accent" as string]: accent }}>
-        <Render config={config} data={data} metadata={{ projectId }} />
+        <Render config={config} data={data} metadata={{ projectId, ...(accent ? { accent } : {}) }} />
       </div>
     </div>
   );

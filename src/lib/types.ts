@@ -1,6 +1,7 @@
 import type { Data } from "@puckeditor/core";
 import type { Isometry } from "./isometry";
 import type { SeoMeta, SiteKind, ThemeTokens } from "@/doc/schema";
+import type { Brief } from "./profile";
 
 export type UnitStatus = "available" | "reserved" | "sold" | "rented";
 export type TemplateId = "atelier" | "kontrast" | "lumen" | "t1" | "t2" | "t3" | "t4" | "t5" | "calm" | "bold" | "compact";
@@ -123,7 +124,12 @@ export interface ViewingSlot {
 
 export interface Booking {
   id: string;
+  /** a viewing slot, or "resource:<name>@<ISO start>" for the booking system */
   slotId: string;
+  /** booking system: what was booked and when */
+  resource?: string;
+  start?: string;
+  durationMin?: number;
   at: number;
   name: string;
   email: string;
@@ -154,6 +160,8 @@ export interface Project {
   theme?: ThemeTokens;
   /** search engine and share settings of the home page; further pages carry their own */
   seo?: SeoMeta;
+  /** the answers from the new-site interview: what the site is for and which features it needs */
+  brief?: Brief;
   template: TemplateId;
   logo?: string;
   /** unit feed configured in the wizard (credentials are not kept in this preview) */
