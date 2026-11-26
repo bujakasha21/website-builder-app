@@ -6,6 +6,23 @@ export interface Isometry {
   /** shape id → unit id */
   map: Record<string, string>;
   shapes: string[];
+  /** a picture (PNG/JPG) instead of a drawing: shown as the building, apartments are not clickable on it */
+  raster?: { src: string; w: number; h: number };
+}
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+/** the markup to draw: the SVG itself, or an SVG frame around the uploaded picture */
+export function isoMarkup(iso: Isometry): string {
+  if (!iso.raster) return iso.svg;
+  const { src, w, h } = iso.raster;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet"><image href="${esc(src)}" width="${w}" height="${h}"/></svg>`;
+}
+
+/** an uploaded PNG/JPG isometry; its size is read so it scales like an SVG would */
+export async function isoFromImage(file: File): Promise<Isometry> {
+  const src = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(file); });
+  const { w, h } = await new Promise<{ w: number; h: number }>((res, rej) => { const i = new Image(); i.onload = () => res({ w: i.naturalWidth, h: i.naturalHeight }); i.onerror = rej; i.src = src; });
+  return { svg: "", map: {}, shapes: [], raster: { src, w, h } };
 }
 
 const SHAPES = "polygon, path, rect, polyline, circle, ellipse";

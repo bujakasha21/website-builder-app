@@ -2080,3 +2080,19 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 /* logo step */
 /* . */
 /* . */
+/* apartments source + isometry (interview) */
+.ob-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ob-units { margin-top: 18px; }
+.ob-units .st-note { margin: 0; }
+.ob-logo-drop.wide { width: 100%; max-width: 640px; height: auto; padding: 22px; }
+.ob-api { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; max-width: 760px; }
+.ob-api .ob-field { margin-top: 0; }
+.ob-api .st-note { grid-column: 1 / -1; margin-top: 12px; }
+.ob-iso { margin-top: 14px; max-width: 760px; }
+.ob-iso-view { height: 360px; border-radius: 14px; background: #fff; border: 1px solid var(--line); overflow: hidden; padding: 12px; }
+.ob-iso-view > * { height: 100%; }
+.ob-iso .st-note { margin-top: 8px; }
+@media (max-width: 760px) { .ob-grid.four, .ob-api { grid-template-columns: 1fr; } }
+/* units screen */
+/* . */
+.st-seg.ob-seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: max-content; height: 40px; width: max-content; }

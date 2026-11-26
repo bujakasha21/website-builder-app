@@ -5,16 +5,21 @@ import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
 import NewIntro from "@/components/NewIntro";
 import { readLogo } from "@/lib/logo";
+import UnitsEditor from "@/components/UnitsEditor";
+import { IsometryView } from "@/components/Isometry";
+import { isoFromImage, parseIsometry } from "@/lib/isometry";
+import { testIsometry, testUnits } from "@/lib/test-units";
+import { unitsFromFile } from "@/lib/units-import";
 import { brandFromBrief } from "@/lib/brand";
 import { writeCopy } from "@/lib/copy";
 import { saveBriefDraft } from "@/lib/brief";
-import { EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, ROLES, VIBES, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
+import { API_PROVIDERS, EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, needsUnits, ROLES, UNIT_SOURCES, VIBES, type UnitSource, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
 import { addProject, saveProfile, uid, useProfile } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import type { SiteKind } from "@/doc/schema";
 import type { Project } from "@/lib/types";
 
-type Screen = "role" | "experience" | "purposes" | "mode" | "kind" | "about" | "features" | "look";
+type Screen = "role" | "experience" | "purposes" | "mode" | "kind" | "about" | "features" | "units" | "look";
 type Mode = "ai" | "custom";
 const LANGS: [string, string][] = [["de-CH", "Deutsch"], ["fr-CH", "Français"], ["it-CH", "Italiano"], ["en", "English"]];
 /** creation time; a plain function so the click handler does not read the clock inline */
@@ -55,14 +60,16 @@ export default function NewSite() {
   const [kindTouched, setKindTouched] = useState(false);
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [logoErr, setLogoErr] = useState<string | null>(null);
+  const [isoKind, setIsoKind] = useState<"generated" | "svg" | "png" | "none">("generated");
+  const [isoErr, setIsoErr] = useState<string | null>(null);
+  const [sheetNote, setSheetNote] = useState<string | null>(null);
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<Mode | null>(null);
   // a short curtain every time "New website" opens (not when only the profile is edited)
   const [intro, setIntro] = useState(!onlyProfile);
 
-  const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
+  const baseScreens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
   if (profile === undefined) return <div className="p-10 text-muted">Loading …</div>;
-  const screen = screens[Math.min(i, screens.length - 1)];
   const p = profile ?? null;
   // the person's own profile prefills what the site is for
   const purposes = (prTouched.purposes ? pr.purposes : p?.purposes) ?? [];
@@ -70,6 +77,26 @@ export default function NewSite() {
   const b: Brief = { ...brief, kind, features: kindTouched || brief.features !== KIND_FEATURES.residential ? brief.features : KIND_FEATURES[kind] };
   const setKind = (k: SiteKind) => { setKindTouched(true); setBrief({ ...b, kind: k, features: KIND_FEATURES[k] }); };
   const toggleFeature = (f: FeatureId) => setBrief({ ...b, features: b.features.includes(f) ? b.features.filter((x) => x !== f) : [...b.features, f] });
+  // sites with apartments get one more screen: where the apartments come from, and the building view
+  const screens: Screen[] = needsUnits(b) ? baseScreens.flatMap((x) => (x === "look" ? ["units", "look"] as Screen[] : [x])) : baseScreens;
+  const screen = screens[Math.min(i, screens.length - 1)];
+  const src = b.unitSource ?? "test";
+  const commercialSite = b.kind === "commercial";
+  /** the apartments this site starts with, for the chosen source */
+  const unitsNow = (x: Brief = b) => ((x.unitSource ?? "test") === "test" || x.unitSource === "api" ? testUnits(x.offer, commercialSite) : x.units ?? []);
+  const setSource = async (v: UnitSource) => {
+    const next: Brief = { ...b, unitSource: v, units: v === "manual" || v === "sheet" ? b.units ?? [] : undefined };
+    // test apartments come with their own isometry, unless the owner uploaded one
+    if (v === "test" && (!b.isometry || isoKind === "generated")) { setIsoKind("generated"); next.isometry = await testIsometry(unitsNow(next)); }
+    setBrief(next);
+  };
+  const onIsoFile = async (file: File) => {
+    try {
+      if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) { setBrief({ ...b, isometry: parseIsometry(await file.text(), unitsNow()) }); setIsoKind("svg"); }
+      else { setBrief({ ...b, isometry: await isoFromImage(file) }); setIsoKind("png"); }
+      setIsoErr(null);
+    } catch { setIsoErr("This file could not be read. Use an SVG drawing or a PNG/JPG picture."); }
+  };
 
   const finishProfile = async (skipped = false) => {
     const role = prTouched.role ? pr.role : p?.role ?? pr.role;
@@ -80,6 +107,8 @@ export default function NewSite() {
   const next = async () => {
     if (screen === "experience") await finishProfile();
     if (screen === "look") return finish();
+    // the test isometry is there as soon as the apartments screen opens
+    if (screens[i + 1] === "units" && !b.isometry && isoKind === "generated") setBrief({ ...b, isometry: await testIsometry(unitsNow()) });
     setI((x) => Math.min(x + 1, screens.length - 1));
   };
   const back = () => (i > 0 ? setI(i - 1) : router.push("/"));
@@ -95,16 +124,20 @@ export default function NewSite() {
     const langs = b.languages.length ? b.languages : ["de-CH"];
     const id = (base.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site") + "-" + uid().slice(0, 4);
     const brand = brandFromBrief(b, t.accent);
+    const fb = final();
+    const units = fb.units ?? [];
     const project: Project = {
-      ...base, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...b, start: "blank" }, docVersion: 3, theme: brand.theme,
+      ...base, units, isometry: fb.isometry, isoMode: fb.isometry ? "2d" : undefined, connector: fb.unitSource === "api" ? fb.connector : undefined, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...fb, units: undefined, isometry: undefined, start: "blank" }, docVersion: 3, theme: brand.theme,
       uses: b.kind === "commercial" ? ["commercial"] : undefined, logo: brand.logo, logoOnDark: brand.logoOnDark, seo: writeCopy(b, base).seo,
       locale: langs[0], locales: langs.slice(1), accent: brand.accent, template: t.id,
-      draft: buildPage(base, t.id, b), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
+      draft: buildPage({ ...base, units }, t.id, fb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
     };
     addProject(project);
     router.push(`/edit/${id}`);
   };
-  const handOff = (m: StartMode) => saveBriefDraft({ ...b, name: base.name, start: m }, { city: base.city, address: base.address, zip: base.zip });
+  /** what goes to Pascal / the editor: the apartments of the chosen source are fixed here */
+  const final = (): Brief => (needsUnits(b) ? { ...b, unitSource: src, units: unitsNow(), isometry: isoKind === "none" ? undefined : b.isometry } : b);
+  const handOff = (m: StartMode) => saveBriefDraft({ ...final(), name: base.name, start: m }, { city: base.city, address: base.address, zip: base.zip });
   /** the end of the interview: Pascal takes over, or the editor opens with the picked sections */
   const finish = () => {
     if (mode === "ai") { handOff("ai"); router.push("/new/ai"); }
@@ -225,6 +258,71 @@ export default function NewSite() {
                   </div>
                 </div>
               ))}
+            </>
+          )}
+
+          {screen === "units" && (
+            <>
+              <div className="eyebrow">New website</div>
+              <h1 className="ob-h">Where do the {commercialSite ? "spaces" : "apartments"} come from?</h1>
+              <p className="ob-sub">While you test, take the generated test apartments. The real source can be switched any time later under Apartments.</p>
+              <div className="ob-grid four" role="radiogroup" aria-label="Source of the apartments">
+                {UNIT_SOURCES.map((x) => <Card key={x.id} title={x.label} note={x.note} on={src === x.id} onClick={() => setSource(x.id)} />)}
+              </div>
+              <div className="ob-units rise" key={src}>
+                {src === "test" ? <p className="st-note">{testUnits(b.offer, commercialSite).length} {commercialSite ? "spaces" : "apartments"} in buildings A and B, three floors, mixed status ({b.offer === "sale" ? "purchase prices" : "monthly rents"}). Their numbers match the test isometry below.</p> : null}
+                {src === "manual" ? <UnitsEditor units={b.units ?? []} onChange={(u) => setBrief({ ...b, units: u })} type={b.offer ?? "rent"} /> : null}
+                {src === "sheet" ? (
+                  <>
+                    <label className="ob-logo-drop wide">
+                      <b>Choose an Excel or CSV file</b><small>Columns (German or English): ref, use, building, floor, rooms, area, price, charges, status</small>
+                      <input type="file" accept=".csv,.xlsx,.xls" hidden onChange={async (e) => {
+                        const file = e.target.files?.[0]; e.target.value = "";
+                        if (!file) return;
+                        try { const u = await unitsFromFile(file); setBrief({ ...b, units: u }); setSheetNote(`${u.length} rows read from “${file.name}”. Check them below.`); } catch { setSheetNote("This file could not be read."); }
+                      }} />
+                    </label>
+                    {sheetNote ? <p className="st-note" role="status">{sheetNote}</p> : null}
+                    {b.units?.length ? <UnitsEditor units={b.units} onChange={(u) => setBrief({ ...b, units: u })} type={b.offer ?? "rent"} /> : null}
+                  </>
+                ) : null}
+                {src === "api" ? (
+                  <div className="ob-api">
+                    <label className="ob-field"><span>System</span><select className="select" value={b.connector?.provider ?? "wincasa"} onChange={(e) => setBrief({ ...b, connector: { baseUrl: "", projectRef: "", ...b.connector, provider: e.target.value } })}>{API_PROVIDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+                    <label className="ob-field"><span>Project / property reference</span><input className="input" value={b.connector?.projectRef ?? ""} onChange={(e) => setBrief({ ...b, connector: { provider: "wincasa", baseUrl: "", ...b.connector, projectRef: e.target.value } })} placeholder="e.g. 01281.02" /></label>
+                    <label className="ob-field"><span>Base URL</span><input className="input" value={b.connector?.baseUrl ?? ""} onChange={(e) => setBrief({ ...b, connector: { provider: "wincasa", projectRef: "", ...b.connector, baseUrl: e.target.value } })} placeholder="https://api.example.ch/v1" /></label>
+                    <p className="st-note">There is no live connection in this preview yet: the settings are saved with the site, and it starts with the test apartments until the feed is switched on. The API key is added later in the project settings, never here.</p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="ob-group">
+                <div className="ob-group-t">Building view (isometry) <small>– SVG for clickable apartments, or a PNG/JPG picture</small></div>
+                <div className="st-seg ob-seg" role="group" aria-label="Isometry">
+                  {([["generated", "Test isometry"], ["svg", "Upload SVG"], ["png", "Upload PNG"], ["none", "None"]] as const).map(([v, l]) => (
+                    <button key={v} type="button" aria-pressed={isoKind === v} onClick={async () => {
+                      setIsoKind(v); setIsoErr(null);
+                      if (v === "generated") setBrief({ ...b, isometry: await testIsometry(unitsNow()) });
+                      else if (v === "none") setBrief({ ...b, isometry: undefined });
+                      else if ((v === "png") !== !!b.isometry?.raster || isoKind === "generated") setBrief({ ...b, isometry: undefined });
+                    }}>{l}</button>
+                  ))}
+                </div>
+                {(isoKind === "svg" || isoKind === "png") && !b.isometry ? (
+                  <label className="ob-logo-drop wide" style={{ marginTop: 12 }}>
+                    <b>{isoKind === "svg" ? "Upload the isometry as SVG" : "Upload the isometry as PNG or JPG"}</b>
+                    <small>{isoKind === "svg" ? "One shape per apartment; shapes named like the apartment numbers are linked automatically." : "Shown as the building picture next to the list; apartments cannot be clicked on a picture."}</small>
+                    <input type="file" accept={isoKind === "svg" ? ".svg,image/svg+xml" : "image/png,image/jpeg,image/webp"} hidden onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) await onIsoFile(f); }} />
+                  </label>
+                ) : null}
+                {isoErr ? <p className="voice-err" role="alert">{isoErr}</p> : null}
+                {b.isometry ? (
+                  <div className="ob-iso">
+                    <div className="ob-iso-view"><IsometryView iso={b.isometry} units={unitsNow()} accent={b.accent ?? "#1F5C4A"} /></div>
+                    <p className="st-note">{b.isometry.raster ? "Picture – shown as the building view; for clickable apartments use an SVG." : `${b.isometry.shapes.length} shapes, ${Object.keys(b.isometry.map).length} linked to ${commercialSite ? "spaces" : "apartments"}${Object.keys(b.isometry.map).length < b.isometry.shapes.length ? " – the rest can be linked later under Isometry" : ""}.`}</p>
+                  </div>
+                ) : null}
+              </div>
             </>
           )}
 

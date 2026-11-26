@@ -36,6 +36,13 @@ export interface Brief {
   copy?: import("./copy").Copy;
   /** who wrote `copy`, e.g. "claude-opus-5-5" or "rules" */
   copyBy?: string;
+  /** where the apartments come from; "test" = generated sample apartments for trying things out */
+  unitSource?: UnitSource;
+  units?: import("./types").Unit[];
+  /** API feed settings (no live sync in this preview; the site starts with test apartments) */
+  connector?: { provider: string; baseUrl: string; projectRef: string };
+  /** building view: an SVG drawing (clickable apartments) or a PNG/JPG picture */
+  isometry?: import("./isometry").Isometry;
   start?: StartMode;
 }
 
@@ -116,6 +123,15 @@ export const VIBES: { id: Vibe; label: string; note: string; template: "atelier"
   { id: "bold", label: "Bold", note: "Big capitals, black and white, one signal colour", template: "kontrast" },
   { id: "friendly", label: "Friendly", note: "Rounded pictures, soft colour", template: "lumen" },
 ];
+
+export type UnitSource = "test" | "manual" | "api" | "sheet";
+export const UNIT_SOURCES: { id: UnitSource; label: string; note: string }[] = [
+  { id: "test", label: "Test apartments", note: "24 generated apartments with a matching isometry – for trying things out" },
+  { id: "manual", label: "By hand", note: "Type the apartments into a table" },
+  { id: "api", label: "From an API", note: "Wincasa, Flatfox, CasaGateway, Melon …" },
+  { id: "sheet", label: "From a sheet", note: "Excel or CSV letting list" },
+];
+export const API_PROVIDERS = [["wincasa", "Wincasa"], ["flatfox", "Flatfox"], ["casagateway", "CasaGateway / CasaOne"], ["melon", "Melon"], ["custom", "Other REST / JSON"]] as const;
 
 export type StartMode = "ai" | "steps" | "template" | "blank" | "document" | "url";
 
