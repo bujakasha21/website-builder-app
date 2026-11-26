@@ -14,7 +14,7 @@ import { placeholder } from "@/lib/placeholders";
 import { addProject, uid, updateProject, useDb, useProject } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
-import { VIBES, type Brief } from "@/lib/profile";
+import { needsUnits, VIBES, type Brief } from "@/lib/profile";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
 interface Line { text: string; items?: string[]; done?: boolean }
@@ -101,7 +101,7 @@ export default function AiBuilder() {
   const [busy, setBusy] = useState(false);
   const [pid, setPid] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  const [found, setFound] = useState<{ plan: FloorPlan; units: Unit[] } | null>(null);
+  const [found, setFound] = useState<{ plan: FloorPlan | null; units: Unit[] } | null>(null);
   const [form, setForm] = useState({ name: "", address: "", zip: "", city: "", type: "rent" as "rent" | "sale", image: "" });
   const [step, setStep] = useState(-1); // -1 = not guiding yet, STEPS.length = finished
   // the interview on /new carries name, city, languages and the features the site should have
@@ -112,8 +112,20 @@ export default function AiBuilder() {
     setBrief(d.brief); // eslint-disable-line react-hooks/set-state-in-effect
     setForm((x) => ({ ...x, name: d.brief.name || x.name, city: d.city || x.city, address: d.address || x.address, zip: d.zip || x.zip, type: d.brief.offer ?? x.type }));
     const where = [d.address, [d.zip, d.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-    setLines([{ text: `Hi, I am Pascal. I already have your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, ${d.brief.offer === "sale" ? "for sale" : "for rent"}, the ${VIBES.find((v) => v.id === d.brief.vibe)?.label.toLowerCase() ?? "chosen"} look and the sections you picked. The one thing only a floor plan can tell me is missing: drop the PDF and I build the site straight away.` }]);
+    const look = VIBES.find((v) => v.id === d.brief.vibe)?.label.toLowerCase() ?? "chosen";
+    setLines([{ text: needsUnits(d.brief)
+      ? `Hi, I am Pascal. I already have your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, ${d.brief.offer === "sale" ? "for sale" : "for rent"}, the ${look} look and the sections you picked. The one thing only a floor plan can tell me is missing: drop the PDF and I build the site straight away.`
+      : `Hi, I am Pascal. I have everything I need from your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, the ${look} look and the sections you picked. No floor plan needed for this one, so I am building it right now.` }]);
   }, []);
+  // shopping centre, booking, blog …: nothing to read from a plan, Pascal builds from the answers right away
+  const started = useRef(false);
+  const ready = !!db;
+  useEffect(() => {
+    if (!brief || needsUnits(brief) || started.current || !ready) return;
+    started.current = true;
+    // no cleanup on purpose: a dev-mode double effect or a store update must not cancel the one build
+    setTimeout(() => { setFound({ plan: null, units: [] }); create({ plan: null, units: [] }); }, 900);
+  }, [brief, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   const p = useProject(pid ?? undefined);
   const end = useRef<HTMLDivElement>(null);
   const say = async (l: Line, pause = 650) => { setLines((x) => [...x, l]); setTimeout(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), 50); await wait(pause); };
@@ -159,7 +171,7 @@ export default function AiBuilder() {
   const create = async (got = found, running = false) => {
     if (!got || (busy && !running)) return;
     setBusy(true);
-    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units, floorPlans: [got.plan] };
+    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units, floorPlans: got.plan ? [got.plan] : [] };
     const id = (core.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project") + "-" + uid().slice(0, 4);
     const draftP = { ...core, id, template: "atelier" as TemplateId } as Project;
     // the look chosen in the interview wins; without one Pascal suggests
@@ -254,7 +266,7 @@ export default function AiBuilder() {
                 <span className="text-muted text-[13px]">Floor plan or sales sheet, first page is used</span>
                 <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
               </label>
-              {!found && !busy ? <button className="text-[13px] underline text-muted mt-3" onClick={() => run(() => planFromUrl("/samples/floor-plan-typical-floor.pdf", "Typical floor"), "Parkhof.pdf")}>No PDF at hand? Use the sample floor</button> : null}
+              {!found && !busy && (!brief || needsUnits(brief)) ? <button className="text-[13px] underline text-muted mt-3" onClick={() => run(() => planFromUrl("/samples/floor-plan-typical-floor.pdf", "Typical floor"), "Parkhof.pdf")}>No PDF at hand? Use the sample floor</button> : null}
             </div>
           </div>
         </section>
@@ -269,7 +281,7 @@ export default function AiBuilder() {
               <span className="blob" style={{ width: 64, height: 64, borderRadius: 20 }}><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M8 14h8M8 17h5" /></svg></span>
               {brief ? (
                 <>
-                  <div className="text-[20px] font-semibold tracking-tight mt-5">Only the floor plan is missing</div>
+                  <div className="text-[20px] font-semibold tracking-tight mt-5">{needsUnits(brief) ? "Only the floor plan is missing" : "Building from your answers …"}</div>
                   <dl className="known mt-4 text-left">
                     <div><dt>Name</dt><dd>{form.name}</dd></div>
                     {form.address || form.city ? <div><dt>Address</dt><dd>{[form.address, [form.zip, form.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</dd></div> : null}
@@ -277,7 +289,7 @@ export default function AiBuilder() {
                     <div><dt>Look</dt><dd>{VIBES.find((v) => v.id === brief.vibe)?.label ?? "Pascal suggests"}</dd></div>
                     <div><dt>Sections</dt><dd>{brief.features.length} picked</dd></div>
                   </dl>
-                  <p className="text-muted text-[13px] mt-4">From your answers. Drop the PDF on the left; Pascal builds the site right after reading it.</p>
+                  <p className="text-muted text-[13px] mt-4">{needsUnits(brief) ? "From your answers. Drop the PDF on the left; Pascal builds the site right after reading it." : "From your answers. Pascal needs no floor plan for this kind of site."}</p>
                 </>
               ) : (
                 <>

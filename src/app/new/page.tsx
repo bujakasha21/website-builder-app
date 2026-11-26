@@ -1,17 +1,17 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, ViewTransition } from "react";
-import { PascalLink } from "@/components/PascalFun";
 import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
 import { saveBriefDraft } from "@/lib/brief";
-import { EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, needsUnits, ROLES, VIBES, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
+import { EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, ROLES, VIBES, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
 import { addProject, saveProfile, uid, useProfile } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import type { SiteKind } from "@/doc/schema";
 import type { Project } from "@/lib/types";
 
-type Screen = "role" | "experience" | "purposes" | "kind" | "about" | "features" | "look" | "start";
+type Screen = "role" | "experience" | "purposes" | "mode" | "kind" | "about" | "features" | "look";
+type Mode = "ai" | "custom";
 const LANGS: [string, string][] = [["de-CH", "Deutsch"], ["fr-CH", "Français"], ["it-CH", "Italiano"], ["en", "English"]];
 /** creation time; a plain function so the click handler does not read the clock inline */
 const stamp = () => Date.now();
@@ -51,8 +51,9 @@ export default function NewSite() {
   const [kindTouched, setKindTouched] = useState(false);
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [i, setI] = useState(0);
+  const [mode, setMode] = useState<Mode | null>(null);
 
-  const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience", "purposes"] as Screen[]) : []), ...(onlyProfile ? [] : (["kind", "about", "features", "look", "start"] as Screen[]))], [askProfile, onlyProfile]);
+  const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience", "purposes"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
   if (profile === undefined) return <div className="p-10 text-muted">Loading …</div>;
   const screen = screens[Math.min(i, screens.length - 1)];
   const p = profile ?? null;
@@ -71,11 +72,12 @@ export default function NewSite() {
   };
   const next = async () => {
     if (screen === "purposes") await finishProfile();
+    if (screen === "look") return finish();
     setI((x) => Math.min(x + 1, screens.length - 1));
   };
   const back = () => (i > 0 ? setI(i - 1) : router.push("/"));
   const skip = async () => {
-    if (screens.indexOf(screen) < screens.indexOf("kind") || onlyProfile) { await finishProfile(true); setI(screens.indexOf("kind")); return; }
+    if (screens.indexOf(screen) < screens.indexOf("mode") || onlyProfile) { await finishProfile(true); setI(screens.indexOf("mode")); return; }
     setI(screens.length - 1);
   };
 
@@ -94,11 +96,17 @@ export default function NewSite() {
     addProject(project);
     router.push(`/edit/${id}`);
   };
-  const handOff = (mode: StartMode) => saveBriefDraft({ ...b, name: base.name, start: mode }, { city: base.city, address: base.address, zip: base.zip });
+  const handOff = (m: StartMode) => saveBriefDraft({ ...b, name: base.name, start: m }, { city: base.city, address: base.address, zip: base.zip });
+  /** the end of the interview: Pascal takes over, or the editor opens with the picked sections */
+  const finish = () => {
+    if (mode === "ai") { handOff("ai"); router.push("/new/ai"); }
+    else createNow();
+  };
 
   const pct = Math.round(((screens.indexOf(screen) + 1) / screens.length) * 100);
   const canNext =
     screen === "role" ? !!prTouched.role || !!p : screen === "experience" ? !!prTouched.experience || !!p : screen === "purposes" ? pr.purposes.length > 0 || !!p?.purposes.length
+    : screen === "mode" ? !!mode
     : screen === "about" ? b.name.trim().length > 1 : screen === "features" ? b.features.length > 0 : true;
   const group = (g: string) => FEATURES.filter((f) => f.group === g);
 
@@ -110,7 +118,7 @@ export default function NewSite() {
           <button type="button" className="btn btn-sm btn-ghost" onClick={back}>← Back</button>
           <div className="ob-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Progress"><i style={{ width: `${pct}%` }} /></div>
           <span className="ob-count tnum">{screens.indexOf(screen) + 1} / {screens.length}</span>
-          {screen !== "start" ? <button type="button" className="btn btn-sm btn-ghost" onClick={skip}>Skip</button> : <span style={{ width: 52 }} />}
+          {screen !== "mode" && screen !== "look" ? <button type="button" className="btn btn-sm btn-ghost" onClick={skip}>Skip</button> : <span style={{ width: 52 }} />}
         </div>
 
         <div className="ob-body rise" key={screen}>
@@ -146,6 +154,27 @@ export default function NewSite() {
               <p className="ob-sub">Pick all that apply. New sites start with the right sections for each.</p>
               <div className="ob-grid three" role="group" aria-label="What you make websites for">
                 {KINDS.map((k) => <Card key={k.id} multi title={k.label} note={k.note} on={purposes.includes(k.id)} onClick={() => { const cur = purposes; setPr({ ...pr, purposes: cur.includes(k.id) ? cur.filter((x) => x !== k.id) : [...cur, k.id] }); setPrTouched({ ...prTouched, purposes: true }); }} />)}
+              </div>
+            </>
+          )}
+
+          {screen === "mode" && (
+            <>
+              <div className="eyebrow">New website</div>
+              <h1 className="ob-h">How would you like to build it?</h1>
+              <p className="ob-sub">A few questions follow either way, then you land in the same editor and can change everything.</p>
+              <div className="ob-two" role="radiogroup" aria-label="How to build">
+                <button type="button" role="radio" aria-checked={mode === "ai"} className={`start-card featured ${mode === "ai" ? "on" : ""}`} onClick={() => { setMode("ai"); setI(i + 1); }}>
+                  <span className="start-badge">Recommended</span>
+                  <span className="start-icon pascal" aria-hidden>P</span>
+                  <span className="start-title">Pascal builds it</span>
+                  <span className="start-text">Tell Pascal what the site is for. With apartments he reads your floor plan PDF; otherwise he builds straight from your answers. Then he suggests a version for every section and you choose.</span>
+                </button>
+                <button type="button" role="radio" aria-checked={mode === "custom"} className={`start-card ${mode === "custom" ? "on" : ""}`} onClick={() => { setMode("custom"); setI(i + 1); }}>
+                  <span className="start-icon" aria-hidden><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg></span>
+                  <span className="start-title">Custom made</span>
+                  <span className="start-text">Straight into the editor with the sections you pick, and build it yourself: drag, drop, edit. Pascal is still there in the corner if you need him.</span>
+                </button>
               </div>
             </>
           )}
@@ -227,48 +256,11 @@ export default function NewSite() {
             </>
           )}
 
-          {screen === "start" && (
-            <>
-              <div className="eyebrow">New website</div>
-              <h1 className="ob-h">How do you want to start?</h1>
-              <p className="ob-sub">Every way ends in the same editor with the sections you picked: {b.features.map((f) => FEATURES.find((x) => x.id === f)?.label).filter(Boolean).join(", ")}.</p>
-              <div className="ob-start">
-                {needsUnits(b) ? (
-                  <PascalLink href="/new/ai" className="start-card featured" onClick={() => handOff("ai")}>
-                    <span className="start-badge">Recommended</span>
-                    <span className="start-icon pascal" aria-hidden>P</span>
-                    <span className="start-title">Pascal builds it from a PDF</span>
-                    <span className="start-text">Drop in a floor plan. Pascal reads rooms and areas, builds apartments, 2D/3D plans and the building, and fills your sections.</span>
-                  </PascalLink>
-                ) : null}
-                <PascalLink look="toolbox" href="/new/custom" className="start-card" onClick={() => handOff("steps")}>
-                  <span className="start-icon" aria-hidden>≡</span>
-                  <span className="start-title">Step by step</span>
-                  <span className="start-text">{needsUnits(b) ? "Logo and colours, photos, apartments from Excel or an API, your isometry, then the editor." : "Logo and colours, photos and languages, then the editor."}</span>
-                </PascalLink>
-                <button type="button" className="start-card" onClick={createNow}>
-                  <span className="start-icon" aria-hidden>→</span>
-                  <span className="start-title">Open the editor now</span>
-                  <span className="start-text">Start from the page above with sample content and fill it in yourself.</span>
-                </button>
-                <div className="start-card disabled" aria-disabled>
-                  <span className="start-badge soon">Phase 3</span>
-                  <span className="start-title">Upload a document or brief</span>
-                  <span className="start-text">PDF, Word or text: Pascal summarises it for you to confirm, then builds the site. Not built yet.</span>
-                </div>
-                <div className="start-card disabled" aria-disabled>
-                  <span className="start-badge soon">Phase 3</span>
-                  <span className="start-title">Import an existing website</span>
-                  <span className="start-text">Paste a link; texts and pictures are taken over. Not built yet.</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
 
-        {screen !== "start" ? (
+        {screen !== "mode" ? (
           <div className="ob-foot">
-            <button type="button" className="btn btn-primary" disabled={!canNext} onClick={next}>{screen === "purposes" && onlyProfile ? "Save" : "Continue →"}</button>
+            <button type="button" className="btn btn-primary" disabled={!canNext} onClick={next}>{screen === "purposes" && onlyProfile ? "Save" : screen === "look" ? (mode === "ai" ? "Build with Pascal →" : "Open the editor →") : "Continue →"}</button>
           </div>
         ) : null}
       </main>
