@@ -15,7 +15,7 @@ import { addProject, getProject, uid, updateProject, useDb, useProject } from "@
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
 import { needsUnits, VIBES, type Brief } from "@/lib/profile";
-import { brandFromBrief } from "@/lib/brand";
+import { brandFromBrief, isoModeOf } from "@/lib/brand";
 import { writeCopy } from "@/lib/copy";
 import { claudeAvailable, claudeCopy } from "@/lib/ai";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
@@ -183,7 +183,7 @@ export default function AiBuilder() {
   const create = async (got = found, running = false) => {
     if (!got || (busy && !running)) return;
     setBusy(true);
-    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units.length ? got.units : brief?.units ?? [], floorPlans: got.plan ? [got.plan] : [] };
+    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units.length ? got.units : brief?.units ?? [], floorPlans: got.plan ? [got.plan] : brief?.floorPlans ?? [] };
     const id = (core.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project") + "-" + uid().slice(0, 4);
     const draftP = { ...core, id, template: "atelier" as TemplateId } as Project;
     // the look chosen in the interview wins; without one Pascal suggests
@@ -204,8 +204,8 @@ export default function AiBuilder() {
     const caps = CAPTIONS[brief?.kind ?? "residential"] ?? CAPTIONS.residential;
     const media = { heroImage: form.image || placeholder("exterior", brand.accent), gallery: (["interior", "kitchen", "garden", "detail"] as const).map((k, i) => ({ src: placeholder(k, brand.accent), caption: `${caps[i]} (placeholder)` })) };
     const built: Project = {
-      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: wb?.languages[0] ?? "en", locales: wb?.languages.slice(1), kind: wb?.kind, brief: wb ? { ...wb, units: undefined, isometry: undefined, name: core.name, start: "ai" } : undefined,
-      accent: brand.accent, logo: brand.logo, logoOnDark: brand.logoOnDark, theme: brand.theme, docVersion: 3, isometry: wb?.isometry, connector: wb?.unitSource === "api" ? wb.connector : undefined, seo: wb ? (wb.copy ?? writeCopy(wb, core)).seo : undefined, template: tpl.id, isoMode: wb?.isometry ? "2d" : "3d",
+      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: wb?.languages[0] ?? "en", locales: wb?.languages.slice(1), kind: wb?.kind, brief: wb ? { ...wb, units: undefined, isometry: undefined, floorPlans: undefined, name: core.name, start: "ai" } : undefined,
+      accent: brand.accent, logo: brand.logo, logoOnDark: brand.logoOnDark, theme: brand.theme, docVersion: 3, isometry: wb?.isometry, connector: wb?.unitSource === "api" ? wb.connector : undefined, seo: wb ? (wb.copy ?? writeCopy(wb, core)).seo : undefined, template: tpl.id, isoMode: got.plan ? "3d" : isoModeOf(wb) ?? "3d",
       draft: buildPage({ ...core, ...media }, tpl.id, wb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
     };
     // with the interview Pascal decides every section version himself; the owner can still go through them afterwards
@@ -236,7 +236,8 @@ export default function AiBuilder() {
       done.push(`${blocks.length - 2} sections from your list: ${blocks.filter((c) => c.type !== "Header" && c.type !== "Footer").map((c) => SECTION_NAME[c.type] ?? c.type).join(", ")}`);
       for (const k of picks) { const b0 = blocks.find((c) => c.type === k.st.key); if (b0 && b0.props[k.st.field!] === k.value) done.push(`${k.st.title}: “${k.st.variants?.find((v) => v.value === k.value)?.label}” – ${k.why}`); }
       if (saved.units.length) done.push(`${saved.units.length} ${saved.kind === "commercial" ? "spaces" : "apartments"} ${({ test: "(generated test apartments)", manual: "entered by hand", sheet: "from your sheet", api: "– test apartments until the API feed is switched on" } as Record<string, string>)[brief.unitSource ?? ""] ?? ""}`.trim());
-      if (saved.isometry) done.push(saved.isometry.raster ? "Building view: your picture" : `Building view: isometry with ${Object.keys(saved.isometry.map).length} linked apartments`);
+      if (saved.isoMode === "3d" && saved.floorPlans.length) done.push(`Building view: 3D model you can rotate${saved.isometry ? " (your drawing is kept as the alternative)" : ""}`);
+      else if (saved.isometry) done.push(saved.isometry.raster ? "Building view: your picture" : `Building view: your drawing with ${Object.keys(saved.isometry.map).length} linked apartments`);
       done.push(textNote || (brief.description ? "Texts written from your description" : "Starter texts for every section (no description given)"));
       if (saved.seo?.title) done.push(`Search title “${saved.seo.title}”`);
       if (!ownPhoto) done.push("Pictures: drawn placeholders in your colour until you upload photos");

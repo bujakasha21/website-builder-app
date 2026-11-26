@@ -1,5 +1,6 @@
 "use client";
-import { parseIsometry, type Isometry } from "./isometry";
+import { planFromUrl } from "./floorplan/pdf";
+import type { FloorPlan } from "./types";
 import { demoExtras, seedProjects } from "./seed";
 import type { Unit } from "./types";
 
@@ -13,6 +14,14 @@ export function testUnits(offer: "rent" | "sale" = "rent", commercial = false): 
   return [...seedProjects()[0].units, ...demoExtras(commercial ? ["commercial"] : [])].map(sale);
 }
 
-export async function testIsometry(units: Unit[]): Promise<Isometry> {
-  return parseIsometry(await (await fetch("/samples/isometry-sample.svg")).text(), units);
+
+/**
+ * The test building in 3D: the sample floor plan (four apartments around a stairwell) read like any uploaded PDF,
+ * so the stacked model, the 2D plans and the walk-through all work. Read once per session.
+ */
+let building: Promise<FloorPlan> | null = null;
+export function testBuilding(): Promise<FloorPlan> {
+  building ??= planFromUrl("/samples/floor-plan-typical-floor.pdf", "Typical floor (test)").then((p) => ({ ...p, rooms: p.rooms.map((r) => ({ ...r, confirmed: true })) }));
+  building.catch(() => { building = null; });
+  return building;
 }

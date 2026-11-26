@@ -9,7 +9,7 @@ export interface Place { city: string; address: string; zip: string }
 let mem: ({ brief: Brief } & Place) | null = null;
 export function saveBriefDraft(b: Brief, place: Place) {
   mem = { brief: b, ...place };
-  try { sessionStorage.setItem(KEY, JSON.stringify(mem)); } catch { try { sessionStorage.setItem(KEY, JSON.stringify({ ...mem, brief: { ...b, isometry: b.isometry?.raster ? undefined : b.isometry } })); } catch {} }
+  try { sessionStorage.setItem(KEY, JSON.stringify(mem)); } catch { try { sessionStorage.setItem(KEY, JSON.stringify({ ...mem, brief: { ...b, floorPlans: undefined, isometry: b.isometry?.raster ? undefined : b.isometry } })); } catch {} }
 }
 export function readBriefDraft(): ({ brief: Brief } & Place) | null {
   if (mem) return mem;

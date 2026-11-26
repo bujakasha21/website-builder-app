@@ -43,6 +43,10 @@ export interface Brief {
   connector?: { provider: string; baseUrl: string; projectRef: string };
   /** building view: an SVG drawing (clickable apartments) or a PNG/JPG picture */
   isometry?: import("./isometry").Isometry;
+  /** floor plans the 3D building is stacked from (the test building, for now) */
+  floorPlans?: import("./types").FloorPlan[];
+  /** what the site shows: the rotatable 3D model or the uploaded drawing */
+  buildingView?: "3d" | "drawing";
   start?: StartMode;
 }
 

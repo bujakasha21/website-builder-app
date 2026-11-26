@@ -8,9 +8,10 @@ import { readLogo } from "@/lib/logo";
 import UnitsEditor from "@/components/UnitsEditor";
 import { IsometryView } from "@/components/Isometry";
 import { isoFromImage, parseIsometry } from "@/lib/isometry";
-import { testIsometry, testUnits } from "@/lib/test-units";
+import { testBuilding, testUnits } from "@/lib/test-units";
+import dynamic from "next/dynamic";
 import { unitsFromFile } from "@/lib/units-import";
-import { brandFromBrief } from "@/lib/brand";
+import { brandFromBrief, isoModeOf } from "@/lib/brand";
 import { writeCopy } from "@/lib/copy";
 import { saveBriefDraft } from "@/lib/brief";
 import { API_PROVIDERS, EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, needsUnits, ROLES, UNIT_SOURCES, VIBES, type UnitSource, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
@@ -21,6 +22,15 @@ import type { Project } from "@/lib/types";
 
 type Screen = "role" | "experience" | "purposes" | "mode" | "kind" | "about" | "features" | "units" | "look";
 type Mode = "ai" | "custom";
+type IsoKind = "test3d" | "svg" | "png" | "none";
+const Building3D = dynamic(() => import("@/components/plan/Building3D"), { ssr: false });
+const ico = (d: string) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
+const ISO_OPTIONS: { id: IsoKind; label: string; note: string; icon: React.ReactNode }[] = [
+  { id: "test3d", label: "Test building", note: "3D, you can rotate it", icon: ico("M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5") },
+  { id: "svg", label: "Your SVG drawing", note: "Apartments clickable", icon: ico("M4 20l4-1 11-11-3-3L5 16l-1 4zM14 6l3 3") },
+  { id: "png", label: "Your picture", note: "PNG or JPG", icon: ico("M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15 9.5h.01") },
+  { id: "none", label: "None", note: "Apartment list only", icon: ico("M5 5l14 14M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z") },
+];
 const LANGS: [string, string][] = [["de-CH", "Deutsch"], ["fr-CH", "Français"], ["it-CH", "Italiano"], ["en", "English"]];
 /** creation time; a plain function so the click handler does not read the clock inline */
 const stamp = () => Date.now();
@@ -60,7 +70,8 @@ export default function NewSite() {
   const [kindTouched, setKindTouched] = useState(false);
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [logoErr, setLogoErr] = useState<string | null>(null);
-  const [isoKind, setIsoKind] = useState<"generated" | "svg" | "png" | "none">("generated");
+  const [isoKind, setIsoKind] = useState<IsoKind>("test3d");
+  const [bldBusy, setBldBusy] = useState(false);
   const [isoErr, setIsoErr] = useState<string | null>(null);
   const [sheetNote, setSheetNote] = useState<string | null>(null);
   const [i, setI] = useState(0);
@@ -86,15 +97,31 @@ export default function NewSite() {
   const unitsNow = (x: Brief = b) => ((x.unitSource ?? "test") === "test" || x.unitSource === "api" ? testUnits(x.offer, commercialSite) : x.units ?? []);
   const setSource = async (v: UnitSource) => {
     const next: Brief = { ...b, unitSource: v, units: v === "manual" || v === "sheet" ? b.units ?? [] : undefined };
-    // test apartments come with their own isometry, unless the owner uploaded one
-    if (v === "test" && (!b.isometry || isoKind === "generated")) { setIsoKind("generated"); next.isometry = await testIsometry(unitsNow(next)); }
     setBrief(next);
+  };
+  const view = b.buildingView ?? "3d";
+  const setView = (v: "3d" | "drawing") => setBrief({ ...b, buildingView: v });
+  /** the 3D test building, read from the sample floor plan once */
+  const loadPlans = () => {
+    if (b.floorPlans?.length || bldBusy) return;
+    setBldBusy(true);
+    testBuilding().then((plan) => setBrief((x) => ({ ...x, floorPlans: [plan] }))).catch(() => setIsoErr("The sample floor plan could not be read.")).finally(() => setBldBusy(false));
+  };
+  const chooseIso = (v: IsoKind) => {
+    setIsoErr(null);
+    setIsoKind(v);
+    if (v === "test3d") { setBrief({ ...b, buildingView: "3d" }); loadPlans(); }
+    else if (v === "none") setBrief({ ...b, isometry: undefined });
+    else if ((v === "png") !== !!b.isometry?.raster) setBrief({ ...b, isometry: undefined });
   };
   const onIsoFile = async (file: File) => {
     try {
-      if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) { setBrief({ ...b, isometry: parseIsometry(await file.text(), unitsNow()) }); setIsoKind("svg"); }
-      else { setBrief({ ...b, isometry: await isoFromImage(file) }); setIsoKind("png"); }
+      const iso = /svg/i.test(file.type) || /\.svg$/i.test(file.name) ? parseIsometry(await file.text(), unitsNow()) : await isoFromImage(file);
+      setIsoKind(iso.raster ? "png" : "svg");
       setIsoErr(null);
+      // an uploaded drawing is flat; the site shows the rotatable 3D model next to it by default
+      setBrief((x) => ({ ...x, kind, features: b.features, isometry: iso, buildingView: "3d" }));
+      loadPlans();
     } catch { setIsoErr("This file could not be read. Use an SVG drawing or a PNG/JPG picture."); }
   };
 
@@ -108,7 +135,7 @@ export default function NewSite() {
     if (screen === "experience") await finishProfile();
     if (screen === "look") return finish();
     // the test isometry is there as soon as the apartments screen opens
-    if (screens[i + 1] === "units" && !b.isometry && isoKind === "generated") setBrief({ ...b, isometry: await testIsometry(unitsNow()) });
+    if (screens[i + 1] === "units" && isoKind === "test3d") loadPlans();
     setI((x) => Math.min(x + 1, screens.length - 1));
   };
   const back = () => (i > 0 ? setI(i - 1) : router.push("/"));
@@ -127,16 +154,18 @@ export default function NewSite() {
     const fb = final();
     const units = fb.units ?? [];
     const project: Project = {
-      ...base, units, isometry: fb.isometry, isoMode: fb.isometry ? "2d" : undefined, connector: fb.unitSource === "api" ? fb.connector : undefined, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...fb, units: undefined, isometry: undefined, start: "blank" }, docVersion: 3, theme: brand.theme,
+      ...base, units, floorPlans: fb.floorPlans ?? [], isometry: fb.isometry, isoMode: isoModeOf(fb), connector: fb.unitSource === "api" ? fb.connector : undefined, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...fb, units: undefined, isometry: undefined, floorPlans: undefined, start: "blank" }, docVersion: 3, theme: brand.theme,
       uses: b.kind === "commercial" ? ["commercial"] : undefined, logo: brand.logo, logoOnDark: brand.logoOnDark, seo: writeCopy(b, base).seo,
       locale: langs[0], locales: langs.slice(1), accent: brand.accent, template: t.id,
-      draft: buildPage({ ...base, units }, t.id, fb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
+      draft: buildPage({ ...base, units, floorPlans: fb.floorPlans ?? [] }, t.id, fb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
     };
     addProject(project);
     router.push(`/edit/${id}`);
   };
   /** what goes to Pascal / the editor: the apartments of the chosen source are fixed here */
-  const final = (): Brief => (needsUnits(b) ? { ...b, unitSource: src, units: unitsNow(), isometry: isoKind === "none" ? undefined : b.isometry } : b);
+  const final = (): Brief => (needsUnits(b)
+    ? { ...b, unitSource: src, units: unitsNow(), isometry: isoKind === "none" || isoKind === "test3d" ? undefined : b.isometry, floorPlans: isoKind === "none" ? undefined : b.floorPlans, buildingView: isoKind === "test3d" ? "3d" : view }
+    : b);
   const handOff = (m: StartMode) => saveBriefDraft({ ...final(), name: base.name, start: m }, { city: base.city, address: base.address, zip: base.zip });
   /** the end of the interview: Pascal takes over, or the editor opens with the picked sections */
   const finish = () => {
@@ -297,29 +326,44 @@ export default function NewSite() {
               </div>
 
               <div className="ob-group">
-                <div className="ob-group-t">Building view (isometry) <small>– SVG for clickable apartments, or a PNG/JPG picture</small></div>
-                <div className="st-seg ob-seg" role="group" aria-label="Isometry">
-                  {([["generated", "Test isometry"], ["svg", "Upload SVG"], ["png", "Upload PNG"], ["none", "None"]] as const).map(([v, l]) => (
-                    <button key={v} type="button" aria-pressed={isoKind === v} onClick={async () => {
-                      setIsoKind(v); setIsoErr(null);
-                      if (v === "generated") setBrief({ ...b, isometry: await testIsometry(unitsNow()) });
-                      else if (v === "none") setBrief({ ...b, isometry: undefined });
-                      else if ((v === "png") !== !!b.isometry?.raster || isoKind === "generated") setBrief({ ...b, isometry: undefined });
-                    }}>{l}</button>
+                <div className="ob-group-t">Building view</div>
+                <div className="ob-isopick" role="radiogroup" aria-label="Building view">
+                  {ISO_OPTIONS.map((o) => (
+                    <button key={o.id} type="button" role="radio" aria-checked={isoKind === o.id} className={`ob-isocard ${isoKind === o.id ? "on" : ""}`} onClick={() => chooseIso(o.id)}>
+                      <span className="ob-isoicon" aria-hidden>{o.icon}</span>
+                      <b>{o.label}</b><small>{o.note}</small>
+                    </button>
                   ))}
                 </div>
                 {(isoKind === "svg" || isoKind === "png") && !b.isometry ? (
                   <label className="ob-logo-drop wide" style={{ marginTop: 12 }}>
-                    <b>{isoKind === "svg" ? "Upload the isometry as SVG" : "Upload the isometry as PNG or JPG"}</b>
-                    <small>{isoKind === "svg" ? "One shape per apartment; shapes named like the apartment numbers are linked automatically." : "Shown as the building picture next to the list; apartments cannot be clicked on a picture."}</small>
+                    <b>{isoKind === "svg" ? "Upload your isometry as SVG" : "Upload your isometry as PNG or JPG"}</b>
+                    <small>{isoKind === "svg" ? "One shape per apartment; shapes named like the apartment numbers are linked automatically." : "Shown as a picture of the building; apartments cannot be clicked on a picture."}</small>
                     <input type="file" accept={isoKind === "svg" ? ".svg,image/svg+xml" : "image/png,image/jpeg,image/webp"} hidden onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) await onIsoFile(f); }} />
                   </label>
                 ) : null}
                 {isoErr ? <p className="voice-err" role="alert">{isoErr}</p> : null}
-                {b.isometry ? (
+                {isoKind !== "none" && (isoKind === "test3d" || b.isometry) ? (
                   <div className="ob-iso">
-                    <div className="ob-iso-view"><IsometryView iso={b.isometry} units={unitsNow()} accent={b.accent ?? "#1F5C4A"} /></div>
-                    <p className="st-note">{b.isometry.raster ? "Picture – shown as the building view; for clickable apartments use an SVG." : `${b.isometry.shapes.length} shapes, ${Object.keys(b.isometry.map).length} linked to ${commercialSite ? "spaces" : "apartments"}${Object.keys(b.isometry.map).length < b.isometry.shapes.length ? " – the rest can be linked later under Isometry" : ""}.`}</p>
+                    {b.isometry && isoKind !== "test3d" ? (
+                      <div className="ob-viewtabs" role="radiogroup" aria-label="Shown on the website">
+                        <span>On the website:</span>
+                        <button type="button" role="radio" aria-checked={view === "3d"} onClick={() => setView("3d")}>3D model – rotate it</button>
+                        <button type="button" role="radio" aria-checked={view === "drawing"} onClick={() => setView("drawing")}>Your {b.isometry.raster ? "picture" : "drawing"}</button>
+                      </div>
+                    ) : null}
+                    <div className="ob-iso-view">
+                      {view === "3d" || isoKind === "test3d" ? (
+                        b.floorPlans?.length ? <Building3D project={{ units: unitsNow(), floorPlans: b.floorPlans }} accent={b.accent ?? "#1F5C4A"} /> : <div className="ob-iso-wait">{bldBusy ? "Building the 3D model from the sample floor plan …" : "The 3D model could not be built."}</div>
+                      ) : b.isometry ? <IsometryView iso={b.isometry} units={unitsNow()} accent={b.accent ?? "#1F5C4A"} /> : null}
+                    </div>
+                    <p className="st-note">
+                      {view === "3d" || isoKind === "test3d"
+                        ? "Drag to rotate, scroll to zoom. The model is stacked from the sample floor plan: buildings A and B, three floors, four apartments each, linked to the apartment list."
+                        : b.isometry?.raster
+                          ? "Your picture, shown as the building view; for clickable apartments use an SVG."
+                          : `${b.isometry?.shapes.length ?? 0} shapes, ${Object.keys(b.isometry?.map ?? {}).length} linked to ${commercialSite ? "spaces" : "apartments"}${Object.keys(b.isometry?.map ?? {}).length < (b.isometry?.shapes.length ?? 0) ? " – the rest can be linked later under Isometry" : ""}.`}
+                    </p>
                   </div>
                 ) : null}
               </div>

@@ -11,3 +11,10 @@ export function brandFromBrief(b: Brief | undefined, templateAccent: string): { 
   const dark = (b?.palette ?? []).filter((c) => c !== accent && luminance(c) < 0.05).sort((x, y) => luminance(x) - luminance(y))[0];
   return { accent, logo: b?.logo, logoOnDark: b?.logoOnDark || undefined, theme: dark ? { colors: { secondary: dark } } : {} };
 }
+
+/** which building view the site shows: the drawing only when the owner picked it, else the 3D model when there is one */
+export function isoModeOf(b: Pick<Brief, "isometry" | "floorPlans" | "buildingView"> | undefined): "2d" | "3d" | undefined {
+  if (!b) return undefined;
+  if (b.isometry && (b.buildingView === "drawing" || !b.floorPlans?.length)) return "2d";
+  return b.floorPlans?.length ? "3d" : undefined;
+}
