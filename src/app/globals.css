@@ -2133,3 +2133,4 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 .ob-full-scroll { height: 460px; overflow: auto; }
 /* full preview */
 /* . */
+.pg-legal a.pg-act { display: inline-grid; place-items: center; text-decoration: none; color: var(--muted); }

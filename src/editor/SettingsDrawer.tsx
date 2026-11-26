@@ -45,9 +45,9 @@ const LOCALES: [string, string][] = [["de-CH", "Deutsch"], ["fr-CH", "Français"
 const TABS = ["Look", "Menu", "Pop-up", "Disturber", "Languages", "Legal"] as const;
 
 /** site-wide options in one tidy place instead of a long sidebar */
-export default function SettingsDrawer({ project, onClose }: { project: Project; onClose: () => void }) {
+export default function SettingsDrawer({ project, onClose, initialTab }: { project: Project; onClose: () => void; initialTab?: (typeof TABS)[number] }) {
   const { appState, dispatch } = usePuck();
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Look");
+  const [tab, setTab] = useState<(typeof TABS)[number]>(initialTab ?? "Look");
   const s = withDefaults(appState.data.root.props as Record<string, unknown>);
   const set = (patch: Partial<SiteSettings>) => dispatch({ type: "setData", data: { ...appState.data, root: { ...appState.data.root, props: { ...s, ...patch } } } as Data });
   const setModal = (p: Partial<SiteSettings["modal"]>) => set({ modal: { ...s.modal, ...p } });

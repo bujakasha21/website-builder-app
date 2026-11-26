@@ -44,7 +44,7 @@ function BlockItem({ name, children, projectId }: { name: string; children: Reac
 
 // Puck treats overrides as components: they must keep their identity between renders,
 // otherwise everything inside them (open tab of the settings panel, Pascal's chat) is reset on every change
-interface Ctx { id: string; p: Project; page: SitePage | null; goPage: (slug: string | null) => void; mutate: (ops: unknown[], label: string) => void; saved: "saved" | "saving"; langs: string[]; cur: string; qs: string; switchLang: (l: string) => void; settings: boolean; setSettings: (v: boolean) => void; flush: () => void; reload: () => void; history: boolean; setHistory: (v: boolean) => void }
+interface Ctx { id: string; p: Project; page: SitePage | null; goPage: (slug: string | null) => void; mutate: (ops: unknown[], label: string) => void; saved: "saved" | "saving"; langs: string[]; cur: string; qs: string; switchLang: (l: string) => void; settings: boolean; setSettings: (v: boolean) => void; settingsTab: SettingsTab | undefined; openSettings: (tab?: SettingsTab) => void; flush: () => void; reload: () => void; history: boolean; setHistory: (v: boolean) => void }
 const EditorCtx = createContext<Ctx | null>(null);
 
 // two sizes only, with words: the phone is 390 px wide, the desktop view is scaled to fit the canvas
@@ -77,6 +77,10 @@ function headerLinks(p: Project, fn: (links: Link[]) => Link[]) {
 }
 
 /** which page of the site is being edited, plus adding, renaming and removing pages */
+type SettingsTab = "Look" | "Menu" | "Pop-up" | "Disturber" | "Languages" | "Legal";
+/** required on every Swiss site; their text lives in the home page's settings, so they cannot be deleted */
+const LEGAL_PAGES = [{ slug: "imprint", title: "Impressum" }, { slug: "privacy", title: "Datenschutz" }];
+
 /** every page of the site with go-to, rename, delete and add; used in the header menu and in the left "Pages" panel */
 function PagesList({ close }: { close?: () => void }) {
   const c = useContext(EditorCtx)!;
@@ -115,6 +119,12 @@ function PagesList({ close }: { close?: () => void }) {
   ) : (
     <>
       <button type="button" role="menuitem" className="pg-row" aria-current={!c.page ? "page" : undefined} onClick={() => { c.goPage(null); close?.(); }}><b>Home</b><span>/</span></button>
+      {LEGAL_PAGES.map((l) => (
+        <div key={l.slug} className="pg-row pg-legal">
+          <button type="button" role="menuitem" onClick={() => { c.openSettings("Legal"); close?.(); }} title={`Edit the ${l.title} text`}><b>{l.title}</b><span>/legal/{l.slug}</span></button>
+          <a className="pg-act" href={`/site/${c.id}/legal/${l.slug}?${c.qs}`} target="_blank" rel="noreferrer" title={`Open the ${l.title} page`} aria-label={`Open the ${l.title} page`}>↗</a>
+        </div>
+      ))}
       {pages.map((pg) => (
         <div key={pg.id} className="pg-row" aria-current={c.page?.id === pg.id ? "page" : undefined}>
           {ren?.id === pg.id ? (
@@ -131,7 +141,7 @@ function PagesList({ close }: { close?: () => void }) {
         </div>
       ))}
       <button type="button" className="pg-add" onClick={() => setAdding(true)}>+ Add a page</button>
-      <p className="pg-note">The menu bar and footer are the same on every page. Publish puts all pages live.</p>
+      <p className="pg-note">Impressum and Datenschutz are on every site and linked in the footer; their text is under Site settings → Legal. The menu bar and footer are the same on every page. Publish puts all pages live.</p>
     </>
   );
 }
@@ -158,8 +168,8 @@ function PagesPanel() {
   );
 }
 const pagesIcon = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 3h9l3 3v12H8z" /><path d="M4 7v14h11" /></svg>;
-// Puck lists its own panels first; a plugin given again moves to the end, so this reads: Layers, Pages, Blocks
-const PLUGINS = [outlinePlugin({ label: "Layers" }), { name: "pages", label: "Pages", icon: pagesIcon, render: PagesPanel }, blocksPlugin()];
+// Puck lists its own panels first; a plugin given again moves to the end, so this reads: Pages, Layers, Blocks
+const PLUGINS = [{ name: "pages", label: "Pages", icon: pagesIcon, render: PagesPanel }, outlinePlugin({ label: "Layers" }), blocksPlugin()];
 
 function HeaderActions({ children }: { children: React.ReactNode }) {
   const c = useContext(EditorCtx)!;
@@ -178,9 +188,9 @@ function HeaderActions({ children }: { children: React.ReactNode }) {
       ) : null}
       <Link className="btn btn-sm" style={{ height: 34 }} href={`/p/${c.id}`} onClick={c.flush}>Project</Link>
       <a className="btn btn-sm" style={{ height: 34 }} href={`/site/${c.id}${c.page ? `/${c.page.slug}` : ""}?${c.qs}`} target="_blank">Preview</a>
-      <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.settings} onClick={() => { c.setSettings(!c.settings); c.setHistory(false); }}>Site settings</button>
+      <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.settings} onClick={() => (c.settings ? c.setSettings(false) : c.openSettings())}>Site settings</button>
       {flag("history") ? <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.history} onClick={() => { c.setHistory(!c.history); c.setSettings(false); }}>History</button> : null}
-      {c.settings ? <SettingsDrawer project={c.p} onClose={() => c.setSettings(false)} /> : null}
+      {c.settings ? <SettingsDrawer key={c.settingsTab ?? "default"} project={c.p} initialTab={c.settingsTab} onClose={() => c.setSettings(false)} /> : null}
       {c.history ? <HistoryPanel projectId={c.id} before={c.flush} after={c.reload} onClose={() => c.setHistory(false)} /> : null}
       <PascalDock />
       {children}
@@ -225,6 +235,8 @@ export default function Editor() {
   const [saved, setSaved] = useState<"saved" | "saving">("saved");
   const [done, setDone] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
+  const openSettings = (tab?: SettingsTab) => { setSettingsTab(tab); setSettings(true); setHistory(false); };
   const [nonce, setNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState(false);
@@ -272,7 +284,7 @@ export default function Editor() {
   const qs = `draft=1${main ? "" : `&lang=${cur}`}`;
 
   return (
-    <EditorCtx.Provider value={{ id, p, page, goPage, mutate, saved, langs, cur, qs, switchLang, settings, setSettings, flush, reload, history, setHistory }}>
+    <EditorCtx.Provider value={{ id, p, page, goPage, mutate, saved, langs, cur, qs, switchLang, settings, setSettings, settingsTab, openSettings, flush, reload, history, setHistory }}>
       <Puck
         key={key}
         config={config}
