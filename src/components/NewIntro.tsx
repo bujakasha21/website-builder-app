@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { confetti, PascalFace, Typed } from "./PascalFun";
 
 const calm = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -12,28 +12,29 @@ const calm = () => typeof window !== "undefined" && window.matchMedia("(prefers-
 export default function NewIntro({ first, onDone }: { first: boolean; onDone: () => void }) {
   const [phase, setPhase] = useState<"in" | "out">("in");
   const done = useRef(false);
-  const finish = useRef(() => {});
-  finish.current = () => {
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+  const finish = useCallback(() => {
     if (done.current) return;
     done.current = true;
     setPhase("out");
-    setTimeout(onDone, 520);
-  };
+    setTimeout(() => onDoneRef.current(), 520);
+  }, []);
 
   useEffect(() => {
-    if (calm()) { done.current = true; onDone(); return; }
+    if (calm()) { done.current = true; onDoneRef.current(); return; }
     const pop = setTimeout(() => {
       const r = document.querySelector(".nx-site")?.getBoundingClientRect();
       if (r && !done.current) confetti(r.left + r.width / 2, r.top + r.height * 0.4, 38);
     }, 1550);
-    const end = setTimeout(() => finish.current(), 2500);
-    const skip = () => finish.current();
+    const end = setTimeout(finish, 2500);
+    const skip = () => finish();
     addEventListener("keydown", skip);
     return () => { clearTimeout(pop); clearTimeout(end); removeEventListener("keydown", skip); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [finish]);
 
   return (
-    <div className={`nx ${phase}`} onClick={() => finish.current()} role="presentation">
+    <div className={`nx ${phase}`} onClick={finish} role="presentation">
       <div className="nx-stage">
         <div className="nx-site" aria-hidden>
           <div className="nx-bar"><i /><i /><i /></div>
