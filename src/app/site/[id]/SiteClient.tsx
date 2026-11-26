@@ -37,7 +37,8 @@ function Site() {
   let data = page ? subPageData(p, page, draft, lang) : pageData(p, draft, lang);
   if (tpl && data && !page) {
     const find = (type: string) => (data!.content as { type: string; props: Record<string, unknown> }[]).find((c) => c.type === type)?.props;
-    data = buildPage({ ...p, heroImage: find("Hero")?.image as string | undefined, gallery: find("Gallery")?.images as { src: string; caption: string }[] | undefined }, tpl.id as TemplateId);
+    // the site's own sections (from the interview) in the other template, not the default page
+    data = buildPage({ ...p, heroImage: find("Hero")?.image as string | undefined, gallery: find("Gallery")?.images as { src: string; caption: string }[] | undefined }, tpl.id as TemplateId, p.brief);
   }
   // ?fv=cards previews another version of the apartment section, again without saving
   const fv = sp.get("fv");
