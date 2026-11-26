@@ -11,10 +11,12 @@ import { SitePreview, TopBar } from "@/components/shell";
 import { kindOf } from "@/lib/floorplan/furnish";
 import { planFromFile, planFromUrl } from "@/lib/floorplan/pdf";
 import { placeholder } from "@/lib/placeholders";
-import { addProject, uid, updateProject, useDb, useProject } from "@/lib/store";
+import { addProject, getProject, uid, updateProject, useDb, useProject } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
 import { needsUnits, VIBES, type Brief } from "@/lib/profile";
+import { brandFromBrief } from "@/lib/brand";
+import { writeCopy } from "@/lib/copy";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
 interface Line { text: string; items?: string[]; done?: boolean }
@@ -48,6 +50,16 @@ const STEPS: Step[] = [
 
 /** Pascal's suggestion for a step and the reason, from simple rules on the project data */
 /** the guided steps for this site: no look question when the interview chose one, no step for a section the page does not have */
+const CAPTIONS: Record<string, string[]> = {
+  residential: ["Living room", "Kitchen", "Surroundings", "Detail"],
+  commercial: ["Office", "Meeting room", "Surroundings", "Detail"],
+  "shopping-centre": ["Shops", "Food court", "Outside", "Detail"],
+  booking: ["Meeting room", "Workspace", "Outside", "Detail"],
+  blog: ["Picture", "Picture", "Picture", "Picture"],
+  other: ["Inside", "Detail", "Outside", "Detail"],
+};
+const SECTION_NAME: Record<string, string> = { Hero: "top section", Advantages: "advantages", TextImage: "text & image", Facts: "key figures", UnitFinder: "apartments", Embed: "3D tour", Waitlist: "waiting list", Shops: "shop directory", Hours: "opening hours", Booking: "booking", Viewing: "viewings", Gallery: "gallery", Blog: "news", Testimonials: "testimonials", Location: "map", Faq: "questions", Downloads: "downloads", Newsletter: "newsletter", ContactForm: "contact form", Contacts: "contacts" };
+
 function stepsOf(p: Project | null | undefined): Step[] {
   if (!p) return STEPS;
   const types = new Set((p.draft.content as { type: string }[]).map((c) => c.type));
@@ -113,15 +125,13 @@ export default function AiBuilder() {
     setForm((x) => ({ ...x, name: d.brief.name || x.name, city: d.city || x.city, address: d.address || x.address, zip: d.zip || x.zip, type: d.brief.offer ?? x.type }));
     const where = [d.address, [d.zip, d.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
     const look = VIBES.find((v) => v.id === d.brief.vibe)?.label.toLowerCase() ?? "chosen";
-    setLines([{ text: needsUnits(d.brief)
-      ? `Hi, I am Pascal. I already have your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, ${d.brief.offer === "sale" ? "for sale" : "for rent"}, the ${look} look and the sections you picked. The one thing only a floor plan can tell me is missing: drop the PDF and I build the site straight away.`
-      : `Hi, I am Pascal. I have everything I need from your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, the ${look} look and the sections you picked. No floor plan needed for this one, so I am building it right now.` }]);
+    setLines([{ text: `Hi, I am Pascal. I have everything I need from your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, the ${look} look${d.brief.accent ? " in your logo colours" : ""} and the sections you picked. No more questions – I am building it right now.` }]);
   }, []);
   // shopping centre, booking, blog …: nothing to read from a plan, Pascal builds from the answers right away
   const started = useRef(false);
   const ready = !!db;
   useEffect(() => {
-    if (!brief || needsUnits(brief) || started.current || !ready) return;
+    if (!brief || started.current || !ready) return;
     started.current = true;
     // no cleanup on purpose: a dev-mode double effect or a store update must not cancel the one build
     setTimeout(() => { setFound({ plan: null, units: [] }); create({ plan: null, units: [] }); }, 900);
@@ -132,6 +142,7 @@ export default function AiBuilder() {
 
   const run = async (make: () => Promise<FloorPlan>, fileName: string) => {
     if (busy || !db) return;
+    if (pid && p) return addPlan(make, fileName);
     setBusy(true);
     setPid(null); setFound(null); setStep(-1);
     const base = fileName.replace(/\.(pdf|png|jpe?g|webp)$/i, "");
@@ -177,11 +188,17 @@ export default function AiBuilder() {
     // the look chosen in the interview wins; without one Pascal suggests
     const chosen = VIBES.find((v) => v.id === brief?.vibe)?.template;
     const tpl = TEMPLATES.find((t) => t.id === (chosen ?? suggest(STEPS[0], draftP, ownPhoto).value)) ?? TEMPLATES[0];
-    const media = { heroImage: form.image || placeholder("exterior", tpl.accent), gallery: [{ src: placeholder("interior", tpl.accent), caption: "Living room (placeholder)" }, { src: placeholder("kitchen", tpl.accent), caption: "Kitchen (placeholder)" }, { src: placeholder("garden", tpl.accent), caption: "Surroundings (placeholder)" }, { src: placeholder("detail", tpl.accent), caption: "Detail (placeholder)" }] };
-    const project: Project = {
-      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: brief?.languages[0] ?? "en", locales: brief?.languages.slice(1), kind: brief?.kind, brief: brief ? { ...brief, name: core.name, start: "ai" } : undefined, accent: tpl.accent, template: tpl.id, isoMode: "3d",
+    const brand = brandFromBrief(brief, tpl.accent);
+    const caps = CAPTIONS[brief?.kind ?? "residential"] ?? CAPTIONS.residential;
+    const media = { heroImage: form.image || placeholder("exterior", brand.accent), gallery: (["interior", "kitchen", "garden", "detail"] as const).map((k, i) => ({ src: placeholder(k, brand.accent), caption: `${caps[i]} (placeholder)` })) };
+    const built: Project = {
+      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: brief?.languages[0] ?? "en", locales: brief?.languages.slice(1), kind: brief?.kind, brief: brief ? { ...brief, name: core.name, start: "ai" } : undefined,
+      accent: brand.accent, logo: brand.logo, logoOnDark: brand.logoOnDark, theme: brand.theme, docVersion: 3, seo: brief ? writeCopy(brief, core).seo : undefined, template: tpl.id, isoMode: "3d",
       draft: buildPage({ ...core, ...media }, tpl.id, brief), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
     };
+    // with the interview Pascal decides every section version himself; the owner can still go through them afterwards
+    const picks = brief ? stepsOf(built).filter((x) => x.key !== "template").map((x) => ({ st: x, ...suggest(x, built, ownPhoto) })) : [];
+    const project: Project = picks.length ? { ...built, draft: { ...built.draft, content: (built.draft.content as Block[]).map((c) => { const k = picks.find((q) => q.st.key === c.type); return k ? { ...c, props: { ...c.props, [k.st.field!]: k.value } } : c; }) } as Data } : built;
     setBuilding(true);
     await say({ text: "Hard hat on. Building the first version …" }, 1900);
     addProject(project);
@@ -190,9 +207,48 @@ export default function AiBuilder() {
     setBuilding(false);
     confetti();
     cheer("Ta-da!");
-    await say({ text: `Thanks. The first version of “${core.name}” is built${ownPhoto ? "" : "; the pictures are drawn placeholders until you upload your own"}. Now let us go through it together.` }, 500);
+    if (!brief) {
+      await say({ text: `Thanks. The first version of “${core.name}” is built${ownPhoto ? "" : "; the pictures are drawn placeholders until you upload your own"}. Now let us go through it together.` }, 500);
+      setBusy(false);
+      goTo(0, project);
+      return;
+    }
+    // read the stored site back and report only what is really there
+    const saved = getProject(id);
+    const done: string[] = [];
+    if (saved) {
+      done.push(`Template ${TEMPLATES.find((t) => t.id === saved.template)?.name ?? saved.template}${chosen ? " – the look you chose" : ""}`);
+      if (brief.accent && saved.accent.toLowerCase() === brief.accent.toLowerCase()) done.push(`Main colour ${saved.accent.toUpperCase()} from your logo${saved.theme?.colors?.secondary ? `, dark colour ${saved.theme.colors.secondary.toUpperCase()}` : ""}`);
+      if (brief.logo && saved.logo) done.push("Your logo in the menu bar");
+      const blocks = saved.draft.content as Block[];
+      done.push(`${blocks.length - 2} sections from your list: ${blocks.filter((c) => c.type !== "Header" && c.type !== "Footer").map((c) => SECTION_NAME[c.type] ?? c.type).join(", ")}`);
+      for (const k of picks) { const b0 = blocks.find((c) => c.type === k.st.key); if (b0 && b0.props[k.st.field!] === k.value) done.push(`${k.st.title}: “${k.st.variants?.find((v) => v.value === k.value)?.label}” – ${k.why}`); }
+      done.push(brief.description ? "Texts written from your description" : "Starter texts for every section (no description given)");
+      if (saved.seo?.title) done.push(`Search title “${saved.seo.title}”`);
+      if (!ownPhoto) done.push("Pictures: drawn placeholders in your colour until you upload photos");
+    }
+    await say({ text: `Done. “${core.name}” is built. Here is what I did:`, items: done }, 500);
+    if (needsUnits(brief) && !got.plan) await say({ text: "The apartment list is still empty. Drop a floor plan PDF on the left any time and I add the apartments, 2D/3D plans and the building view to this site." }, 0);
     setBusy(false);
-    goTo(0, project);
+    setStep(stepsOf(project).length);
+  };
+
+  /** a floor plan dropped after the site exists: apartments and plan go into it, nothing else changes */
+  const addPlan = async (make: () => Promise<FloorPlan>, fileName: string) => {
+    if (!p) return;
+    setBusy(true);
+    await say({ text: `Reading “${fileName}” for ${p.name} …` }, 300);
+    let plan: FloorPlan;
+    try { plan = await make(); } catch { await say({ text: "I could not open this file. Please try a PDF or an image of the floor plan." }); setBusy(false); return; }
+    if (!plan.rooms.length) { await say({ text: "I found no enclosed rooms on this page, so I left the site as it was." }); setBusy(false); return; }
+    plan = { ...plan, rooms: plan.rooms.map((r) => ({ ...r, confirmed: true })) };
+    const units = unitsFrom(plan, fileName.replace(/\.(pdf|png|jpe?g|webp)$/i, ""));
+    updateProject(p.id, (x) => ({ ...x, floorPlans: [...x.floorPlans, plan], units: [...x.units, ...units] }));
+    const after = getProject(p.id);
+    const added = after ? after.units.length - p.units.length : 0;
+    await say({ text: added ? `Added ${added} ${added === 1 ? "apartment" : "apartments"} with their floor plan. They show in the apartment section of the site; prices can be added under Apartments.` : "Something went wrong: no apartments were added." }, 0);
+    cheer(added ? "More homes!" : "Hmm");
+    setBusy(false);
   };
 
   const goTo = (i: number, proj?: Project) => {
@@ -262,8 +318,8 @@ export default function AiBuilder() {
                 onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
                 onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files?.[0]); }}
                 className={`block border border-dashed p-4 text-center transition-all ${busy ? "opacity-50 pointer-events-none" : "cursor-pointer"} ${over ? "border-accent scale-[1.01]" : "border-line-strong hover:border-ink"}`} style={{ borderRadius: 12, background: over ? "var(--accent-soft)" : undefined }}>
-                <span className="font-medium block">{found ? "Start over with another PDF" : "Drop your PDF here"}</span>
-                <span className="text-muted text-[13px]">Floor plan or sales sheet, first page is used</span>
+                <span className="font-medium block">{pid && brief ? "Add a floor plan PDF" : found ? "Start over with another PDF" : "Drop your PDF here"}</span>
+                <span className="text-muted text-[13px]">{pid && brief ? "Pascal adds the apartments to this site" : "Floor plan or sales sheet, first page is used"}</span>
                 <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
               </label>
               {!found && !busy && (!brief || needsUnits(brief)) ? <button className="text-[13px] underline text-muted mt-3" onClick={() => run(() => planFromUrl("/samples/floor-plan-typical-floor.pdf", "Typical floor"), "Parkhof.pdf")}>No PDF at hand? Use the sample floor</button> : null}
@@ -379,13 +435,13 @@ export default function AiBuilder() {
                 <div className="panel p-5 done-card">
                   <div className="flex items-center gap-4"><Tower step={steps.length} total={steps.length} /><div>
                   <div className="eyebrow">Done · roof is on</div>
-                  <h2 className="text-[22px] font-semibold tracking-tight mt-1">{p.name} is ready for the editor <span className="wave" aria-hidden>🎉</span></h2></div></div>
+                  <h2 className="text-[22px] font-semibold tracking-tight mt-1">{p.name} is ready for the editor</h2></div></div>
                   <div className="flex gap-3 mt-4 flex-wrap">
                     <Link className="btn btn-primary" href={`/edit/${p.id}`}>Open in the editor →</Link>
                     <a className="btn" href={`/site/${p.id}?draft=1`} target="_blank">View the site</a>
                     <Link className="btn" href={`/p/${p.id}/units`}>Add prices</Link>
                     <Link className="btn btn-ghost" href={`/p/${p.id}/plans`}>Check rooms and areas</Link>
-                    <button className="btn btn-ghost" onClick={() => goTo(0)}>Go through the blocks again</button>
+                    <button className="btn btn-ghost" onClick={() => goTo(0)}>Let me choose the versions myself</button>
                   </div>
                 </div>
               )}

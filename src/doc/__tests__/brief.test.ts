@@ -45,3 +45,14 @@ describe("page from the interview", () => {
     expect(needsUnits({ features: ["isometry"] })).toBe(true);
   });
 });
+
+import { writeCopy } from "@/lib/copy";
+describe("Pascal's texts", () => {
+  it("keeps decimals inside the first sentence and stays within SEO lengths", () => {
+    const c = writeCopy({ kind: "residential", name: "Seeblick", description: "24 rental apartments by the lake, 2.5 to 4.5 rooms, move-in spring 2027. Quiet courtyard.", features: ["faq"], languages: ["de-CH"] }, { city: "Thalwil" });
+    expect(c.heroText).toBe("24 rental apartments by the lake, 2.5 to 4.5 rooms, move-in spring 2027.");
+    expect(c.seo.title.length).toBeLessThanOrEqual(60);
+    expect(c.seo.description.length).toBeLessThanOrEqual(155);
+    expect(c.faq?.length).toBeGreaterThan(0);
+  });
+});

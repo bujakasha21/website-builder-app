@@ -4,6 +4,9 @@ import { useMemo, useState, ViewTransition } from "react";
 import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
 import NewIntro from "@/components/NewIntro";
+import { readLogo } from "@/lib/logo";
+import { brandFromBrief } from "@/lib/brand";
+import { writeCopy } from "@/lib/copy";
 import { saveBriefDraft } from "@/lib/brief";
 import { EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, ROLES, VIBES, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
 import { addProject, saveProfile, uid, useProfile } from "@/lib/store";
@@ -51,12 +54,13 @@ export default function NewSite() {
   const [zip, setZip] = useState("");
   const [kindTouched, setKindTouched] = useState(false);
   const [voiceLang, setVoiceLang] = useState("de-CH");
+  const [logoErr, setLogoErr] = useState<string | null>(null);
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<Mode | null>(null);
   // a short curtain every time "New website" opens (not when only the profile is edited)
   const [intro, setIntro] = useState(!onlyProfile);
 
-  const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience", "purposes"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
+  const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
   if (profile === undefined) return <div className="p-10 text-muted">Loading …</div>;
   const screen = screens[Math.min(i, screens.length - 1)];
   const p = profile ?? null;
@@ -74,7 +78,7 @@ export default function NewSite() {
     if (onlyProfile) router.push("/");
   };
   const next = async () => {
-    if (screen === "purposes") await finishProfile();
+    if (screen === "experience") await finishProfile();
     if (screen === "look") return finish();
     setI((x) => Math.min(x + 1, screens.length - 1));
   };
@@ -90,10 +94,11 @@ export default function NewSite() {
     const t = TEMPLATES.find((x) => x.id === tplId) ?? TEMPLATES[0];
     const langs = b.languages.length ? b.languages : ["de-CH"];
     const id = (base.name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site") + "-" + uid().slice(0, 4);
+    const brand = brandFromBrief(b, t.accent);
     const project: Project = {
-      ...base, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...b, start: "blank" }, docVersion: 3, theme: {},
-      uses: b.kind === "commercial" ? ["commercial"] : undefined,
-      locale: langs[0], locales: langs.slice(1), accent: t.accent, template: t.id,
+      ...base, id, slug: id, lat: 47.3769, lng: 8.5417, kind: b.kind, brief: { ...b, start: "blank" }, docVersion: 3, theme: brand.theme,
+      uses: b.kind === "commercial" ? ["commercial"] : undefined, logo: brand.logo, logoOnDark: brand.logoOnDark, seo: writeCopy(b, base).seo,
+      locale: langs[0], locales: langs.slice(1), accent: brand.accent, template: t.id,
       draft: buildPage(base, t.id, b), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: stamp(),
     };
     addProject(project);
@@ -108,8 +113,7 @@ export default function NewSite() {
 
   const pct = Math.round(((screens.indexOf(screen) + 1) / screens.length) * 100);
   const canNext =
-    screen === "role" ? !!prTouched.role || !!p : screen === "experience" ? !!prTouched.experience || !!p : screen === "purposes" ? pr.purposes.length > 0 || !!p?.purposes.length
-    : screen === "mode" ? !!mode
+    screen === "role" ? !!prTouched.role || !!p : screen === "experience" ? !!prTouched.experience || !!p     : screen === "mode" ? !!mode
     : screen === "about" ? b.name.trim().length > 1 : screen === "features" ? b.features.length > 0 : true;
   const group = (g: string) => FEATURES.filter((f) => f.group === g);
 
@@ -147,17 +151,6 @@ export default function NewSite() {
               <p className="ob-sub">Beginners get a calmer editor with Pascal at hand; professionals get every panel and shortcut.</p>
               <div className="ob-grid two" role="radiogroup" aria-label="Experience">
                 {EXPERIENCE.map((x) => <Card key={x.id} title={x.label} note={x.note} on={(prTouched.experience ? pr.experience : p?.experience) === x.id} onClick={() => { setPr({ ...pr, experience: x.id }); setPrTouched({ ...prTouched, experience: true }); }} />)}
-              </div>
-            </>
-          )}
-
-          {screen === "purposes" && (
-            <>
-              <div className="eyebrow">About you</div>
-              <h1 className="ob-h">What do you make websites for?</h1>
-              <p className="ob-sub">Pick all that apply. New sites start with the right sections for each.</p>
-              <div className="ob-grid three" role="group" aria-label="What you make websites for">
-                {KINDS.map((k) => <Card key={k.id} multi title={k.label} note={k.note} on={purposes.includes(k.id)} onClick={() => { const cur = purposes; setPr({ ...pr, purposes: cur.includes(k.id) ? cur.filter((x) => x !== k.id) : [...cur, k.id] }); setPrTouched({ ...prTouched, purposes: true }); }} />)}
               </div>
             </>
           )}
@@ -243,10 +236,42 @@ export default function NewSite() {
               <div className="ob-grid three" role="radiogroup" aria-label="Look">
                 {VIBES.map((v) => (
                   <div key={v.id} role="radio" tabIndex={0} aria-checked={b.vibe === v.id} aria-label={`${v.label}: ${v.note}`} className={`ob-look ${b.vibe === v.id ? "on" : ""}`} onClick={() => setBrief({ ...b, vibe: v.id })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setBrief({ ...b, vibe: v.id }); } }}>
-                    <span className="ob-look-pv" inert><SitePreview data={buildPage(base, v.template, b)} accent={TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
+                    <span className="ob-look-pv" inert><SitePreview data={buildPage(base, v.template, b)} accent={b.accent ?? TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
                     <span className="ob-card-t">{v.label}</span><span className="ob-card-n">{v.note}</span>
                   </div>
                 ))}
+              </div>
+              <div className="ob-group">
+                <div className="ob-group-t">Your logo <small>(optional – Pascal takes the colours from it)</small></div>
+                <div className="ob-logo">
+                  {b.logo ? (
+                    <div className={`ob-logo-tile ${b.logoOnDark ? "dark" : ""}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={b.logo} alt="Your logo" />
+                      <button type="button" onClick={() => setBrief({ ...b, logo: undefined, logoOnDark: undefined, palette: undefined, accent: undefined })} aria-label="Remove logo">×</button>
+                    </div>
+                  ) : (
+                    <label className="ob-logo-drop">
+                      <b>Upload your logo</b><small>SVG, PNG or JPG</small>
+                      <input type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp" hidden onChange={async (e) => {
+                        const f = e.target.files?.[0]; e.target.value = "";
+                        if (!f) return;
+                        try { const r = await readLogo(f); setLogoErr(null); setBrief((x) => ({ ...x, kind, features: b.features, logo: r.src, logoOnDark: r.onDark, palette: r.palette, accent: r.palette[0] })); }
+                        catch { setLogoErr("This file could not be read. Use SVG, PNG, JPG or WebP."); }
+                      }} />
+                    </label>
+                  )}
+                  {b.palette?.length ? (
+                    <div className="ob-swatch-wrap">
+                      <div className="ob-group-t" style={{ marginBottom: 8 }}>Main colour from your logo</div>
+                      <div className="ob-swatches" role="radiogroup" aria-label="Main colour">
+                        {b.palette.map((c) => <button key={c} type="button" role="radio" aria-checked={b.accent === c} onClick={() => setBrief({ ...b, accent: c })} style={{ background: c }} title={c}><span className="tnum">{c.toUpperCase()}</span></button>)}
+                        <button type="button" role="radio" aria-checked={!b.accent} className="tpl" onClick={() => setBrief({ ...b, accent: undefined })}>Template colour</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                {logoErr ? <p className="voice-err" role="alert">{logoErr}</p> : null}
               </div>
               <div className="ob-group">
                 <div className="ob-group-t">Languages <small>(the first one is the main language)</small></div>
@@ -264,7 +289,7 @@ export default function NewSite() {
 
         {screen !== "mode" ? (
           <div className="ob-foot">
-            <button type="button" className="btn btn-primary" disabled={!canNext} onClick={next}>{screen === "purposes" && onlyProfile ? "Save" : screen === "look" ? (mode === "ai" ? "Build with Pascal →" : "Open the editor →") : "Continue →"}</button>
+            <button type="button" className="btn btn-primary" disabled={!canNext} onClick={next}>{screen === "experience" && onlyProfile ? "Save" : screen === "look" ? (mode === "ai" ? "Build with Pascal →" : "Open the editor →") : "Continue →"}</button>
           </div>
         ) : null}
       </main>

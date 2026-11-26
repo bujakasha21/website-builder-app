@@ -2,6 +2,7 @@ import type { Data } from "@puckeditor/core";
 import type { Project, TemplateId, Unit } from "./types";
 import type { Brief, FeatureId } from "./profile";
 import { SECTION_DEFAULTS } from "./section-defaults";
+import { writeCopy } from "./copy";
 
 type Tpl = { id: TemplateId; name: string; note: string; head: string; body: string; accent: string; hero: string; heroHeight?: string; heroAlign?: string; nav: string; advantages: string; textImage: string; gallery: string; map: string };
 /** the three templates a new site can start from: fonts, colour and the block versions each one opens with */
@@ -151,13 +152,17 @@ function fromBrief(p: Base, template: TemplateId, brief: Brief): Data {
   const b = starter(p, template);
   const F = new Set<FeatureId>(brief.features);
   const property = brief.kind === "residential" || brief.kind === "commercial";
-  const kindLine: Record<string, string> = { "shopping-centre": "Shops, restaurants and services under one roof.", booking: "Rooms and desks to book by the hour or day.", blog: "News, stories and updates.", other: "" };
+  // Pascal's texts from the interview (src/lib/copy.ts): the owner's own description first, neutral starters otherwise
+  const c = writeCopy(brief, { city: p.city, address: p.address });
   if (!property || !p.units.length) {
-    b.hero.props.text = brief.description || kindLine[brief.kind] || "";
+    b.hero.props.text = c.heroText;
     b.hero.props.eyebrow = [p.city, KIND_EYEBROW[brief.kind]].filter(Boolean).join(" · ");
   }
-  if (brief.description) b.textImage.props.text = brief.description;
-  if (!property) { b.textImage.props.title = "About us"; b.textImage.props.cta = ""; }
+  b.textImage.props.title = c.aboutTitle;
+  b.textImage.props.text = c.aboutText;
+  b.advantages.props.title = c.advantagesTitle;
+  if (c.advantages.length) b.advantages.props.items = c.advantages;
+  b.contact.props.text = c.contactText;
   if (F.has("units") || F.has("isometry")) b.finder.props.variant = F.has("isometry") ? "split" : "table";
   // the hero button leads to the most important section the site actually has
   const heroTarget: [FeatureId, string, string][] = [["units", "View apartments", "#units"], ["isometry", "View apartments", "#units"], ["shops", "See the shops", "#shops"], ["booking", "Book now", "#booking"], ["blog", "Read the news", "#news"], ["contact", "Get in touch", "#contact"]];
@@ -180,12 +185,12 @@ function fromBrief(p: Base, template: TemplateId, brief: Brief): Data {
     ...pick("booking", sec("Booking")),
     ...pick("viewing", b.viewing),
     ...pick("gallery", b.gallery),
-    ...pick("blog", sec("Blog", property ? {} : { title: brief.kind === "blog" ? "Latest posts" : "News & events" })),
+    ...pick("blog", sec("Blog", { ...(property ? {} : { title: brief.kind === "blog" ? "Latest posts" : "News & events" }), ...(c.posts ? { posts: c.posts } : {}) })),
     ...pick("reviews", sec("Testimonials")),
     ...pick("location", b.location),
-    ...pick("faq", block("Faq", {})),
+    ...pick("faq", block("Faq", c.faq ? { items: c.faq } : {})),
     ...pick("downloads", block("Downloads", { title: "Downloads" })),
-    ...pick("newsletter", sec("Newsletter")),
+    ...pick("newsletter", sec("Newsletter", { text: c.newsletterText })),
     ...pick("contact", b.contact),
     ...pick("team", b.contacts),
     b.footer,

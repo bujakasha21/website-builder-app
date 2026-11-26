@@ -26,6 +26,12 @@ export interface Brief {
   languages: string[];
   /** property sites: let or sell */
   offer?: "rent" | "sale";
+  /** uploaded logo (data URL); light logos need a dark surface */
+  logo?: string;
+  logoOnDark?: boolean;
+  /** colours read from the logo in code (src/lib/logo.ts), and the one picked as the main colour */
+  palette?: string[];
+  accent?: string;
   start?: StartMode;
 }
 
