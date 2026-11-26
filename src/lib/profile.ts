@@ -24,6 +24,8 @@ export interface Brief {
   features: FeatureId[];
   vibe?: Vibe;
   languages: string[];
+  /** property sites: let or sell */
+  offer?: "rent" | "sale";
   start?: StartMode;
 }
 

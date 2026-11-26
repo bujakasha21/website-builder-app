@@ -46,6 +46,8 @@ export default function NewSite() {
   const [prTouched, setPrTouched] = useState<Partial<Record<"role" | "experience" | "purposes", boolean>>>({});
   const [brief, setBrief] = useState<Brief>({ kind: "residential", name: "", description: "", features: KIND_FEATURES.residential, vibe: "elegant", languages: ["de-CH"] });
   const [city, setCity] = useState("");
+  const [address, setAddress] = useState("");
+  const [zip, setZip] = useState("");
   const [kindTouched, setKindTouched] = useState(false);
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [i, setI] = useState(0);
@@ -78,7 +80,7 @@ export default function NewSite() {
   };
 
   const tplId = VIBES.find((v) => v.id === b.vibe)?.template ?? "atelier";
-  const base = { name: b.name.trim() || "New website", address: "", zip: "", city: city.trim(), type: "rent" as const, units: [], floorPlans: [] };
+  const base = { name: b.name.trim() || "New website", address: address.trim(), zip: zip.trim(), city: city.trim(), type: b.offer ?? "rent", units: [], floorPlans: [] };
   const createNow = () => {
     const t = TEMPLATES.find((x) => x.id === tplId) ?? TEMPLATES[0];
     const langs = b.languages.length ? b.languages : ["de-CH"];
@@ -92,7 +94,7 @@ export default function NewSite() {
     addProject(project);
     router.push(`/edit/${id}`);
   };
-  const handOff = (mode: StartMode) => saveBriefDraft({ ...b, name: base.name, start: mode }, city);
+  const handOff = (mode: StartMode) => saveBriefDraft({ ...b, name: base.name, start: mode }, { city: base.city, address: base.address, zip: base.zip });
 
   const pct = Math.round(((screens.indexOf(screen) + 1) / screens.length) * 100);
   const canNext =
@@ -164,7 +166,21 @@ export default function NewSite() {
               <h1 className="ob-h">Name it and tell us about it</h1>
               <p className="ob-sub">A few sentences are enough. They become the first texts on the site, and you can edit everything afterwards.</p>
               <label className="ob-field"><span>Name</span><input className="input" autoFocus value={b.name} onChange={(e) => setBrief({ ...b, name: e.target.value })} placeholder={kind === "shopping-centre" ? "e.g. Shopping Arena" : kind === "residential" ? "e.g. Parkhof Bern" : "Name of the site"} /></label>
-              <label className="ob-field"><span>City <small>(optional)</small></span><input className="input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Zürich" /></label>
+              {kind === "residential" || kind === "commercial" ? (
+                <>
+                  <div className="ob-row">
+                    <label className="ob-field grow"><span>Street and number <small>(optional)</small></span><input className="input" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. Parkstrasse 12" autoComplete="off" /></label>
+                    <label className="ob-field zip"><span>Postcode</span><input className="input tnum" value={zip} onChange={(e) => setZip(e.target.value)} placeholder="3113" /></label>
+                    <label className="ob-field grow"><span>Town</span><input className="input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Rubigen" /></label>
+                  </div>
+                  <div className="ob-field"><span>The {kind === "commercial" ? "spaces" : "apartments"} are</span>
+                    <div className="st-seg ob-seg" role="group" aria-label="Rent or sale">
+                      <button type="button" aria-pressed={(b.offer ?? "rent") === "rent"} onClick={() => setBrief({ ...b, offer: "rent" })}>For rent</button>
+                      <button type="button" aria-pressed={b.offer === "sale"} onClick={() => setBrief({ ...b, offer: "sale" })}>For sale</button>
+                    </div>
+                  </div>
+                </>
+              ) : <label className="ob-field"><span>City <small>(optional)</small></span><input className="input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Zürich" /></label>}
               <label className="ob-field"><span>Short description</span><textarea className="input" rows={4} value={b.description} onChange={(e) => setBrief({ ...b, description: e.target.value })} placeholder={kind === "residential" ? "48 rental apartments, 2.5 to 4.5 rooms, close to the lake, first move-in spring 2027." : "What is it, for whom, what makes it special?"} /></label>
               <Voice lang={voiceLang} onLang={setVoiceLang} onText={(t) => setBrief((x) => ({ ...x, kind, features: b.features, description: (x.description ? x.description.trimEnd() + " " : "") + t }))} />
             </>
@@ -193,10 +209,10 @@ export default function NewSite() {
               <p className="ob-sub">Built live from your answers. Colours, fonts and corners can be changed later in Site settings.</p>
               <div className="ob-grid three" role="radiogroup" aria-label="Look">
                 {VIBES.map((v) => (
-                  <button key={v.id} type="button" role="radio" aria-checked={b.vibe === v.id} className={`ob-look ${b.vibe === v.id ? "on" : ""}`} onClick={() => setBrief({ ...b, vibe: v.id })}>
-                    <span className="ob-look-pv"><SitePreview data={buildPage(base, v.template, b)} accent={TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
+                  <div key={v.id} role="radio" tabIndex={0} aria-checked={b.vibe === v.id} aria-label={`${v.label}: ${v.note}`} className={`ob-look ${b.vibe === v.id ? "on" : ""}`} onClick={() => setBrief({ ...b, vibe: v.id })} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setBrief({ ...b, vibe: v.id }); } }}>
+                    <span className="ob-look-pv" inert><SitePreview data={buildPage(base, v.template, b)} accent={TEMPLATES.find((t) => t.id === v.template)?.accent} width={300} height={220} /></span>
                     <span className="ob-card-t">{v.label}</span><span className="ob-card-n">{v.note}</span>
-                  </button>
+                  </div>
                 ))}
               </div>
               <div className="ob-group">

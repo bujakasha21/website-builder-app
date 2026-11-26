@@ -164,7 +164,7 @@ export default function Wizard() {
     if (!d) return;
     const vibe = VIBES.find((v) => v.id === d.brief.vibe);
     setBrief(d.brief); // eslint-disable-line react-hooks/set-state-in-effect
-    setF((x) => ({ ...x, name: d.brief.name, city: d.city || x.city, locale: d.brief.languages[0] ?? x.locale, template: vibe?.template ?? x.template, accent: TEMPLATES.find((t) => t.id === vibe?.template)?.accent ?? x.accent, uses: d.brief.kind === "commercial" ? ["commercial"] : x.uses }));
+    setF((x) => ({ ...x, name: d.brief.name, city: d.city || x.city, address: d.address || x.address, zip: d.zip || x.zip, type: d.brief.offer ?? x.type, locale: d.brief.languages[0] ?? x.locale, template: vibe?.template ?? x.template, accent: TEMPLATES.find((t) => t.id === vibe?.template)?.accent ?? x.accent, uses: d.brief.kind === "commercial" ? ["commercial"] : x.uses }));
   }, []);
   const [units, setUnits] = useState<Unit[]>([]);
   const [fileNote, setFileNote] = useState("");

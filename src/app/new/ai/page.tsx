@@ -14,7 +14,7 @@ import { placeholder } from "@/lib/placeholders";
 import { addProject, uid, updateProject, useDb, useProject } from "@/lib/store";
 import { buildPage, TEMPLATES } from "@/lib/templates";
 import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
-import type { Brief } from "@/lib/profile";
+import { VIBES, type Brief } from "@/lib/profile";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
 interface Line { text: string; items?: string[]; done?: boolean }
@@ -47,6 +47,13 @@ const STEPS: Step[] = [
 ];
 
 /** Pascal's suggestion for a step and the reason, from simple rules on the project data */
+/** the guided steps for this site: no look question when the interview chose one, no step for a section the page does not have */
+function stepsOf(p: Project | null | undefined): Step[] {
+  if (!p) return STEPS;
+  const types = new Set((p.draft.content as { type: string }[]).map((c) => c.type));
+  return STEPS.filter((s) => (s.key === "template" ? !p.brief?.vibe : types.has(s.key)));
+}
+
 function suggest(step: Step, p: Project, ownPhoto: boolean): { value: string; why: string } {
   const tpl = TEMPLATES.find((t) => t.id === p.template) ?? TEMPLATES[0];
   const n = p.units.length;
@@ -103,7 +110,9 @@ export default function AiBuilder() {
     const d = readBriefDraft();
     if (!d) return;
     setBrief(d.brief); // eslint-disable-line react-hooks/set-state-in-effect
-    setForm((x) => ({ ...x, name: x.name || d.brief.name, city: x.city || d.city }));
+    setForm((x) => ({ ...x, name: d.brief.name || x.name, city: d.city || x.city, address: d.address || x.address, zip: d.zip || x.zip, type: d.brief.offer ?? x.type }));
+    const where = [d.address, [d.zip, d.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    setLines([{ text: `Hi, I am Pascal. I already have your answers: “${d.brief.name}”${where ? ` in ${where}` : ""}, ${d.brief.offer === "sale" ? "for sale" : "for rent"}, the ${VIBES.find((v) => v.id === d.brief.vibe)?.label.toLowerCase() ?? "chosen"} look and the sections you picked. The one thing only a floor plan can tell me is missing: drop the PDF and I build the site straight away.` }]);
   }, []);
   const p = useProject(pid ?? undefined);
   const end = useRef<HTMLDivElement>(null);
@@ -134,7 +143,12 @@ export default function AiBuilder() {
     const units = unitsFrom(plan, base);
     await say({ text: `Units: ${units.length === 1 ? `1 home with ${units[0].rooms} rooms, about ${units[0].areaM2} m²` : `${units.length} apartments`}. Prices are not in the plan, so the list says “on request” until you add them.` });
     setFound({ plan, units });
-    setForm((f) => ({ ...f, name: base.replace(/[-_.]+/g, " ").trim() || "New project" }));
+    if (brief) {
+      await say({ text: "Name, address, rent or sale and the look I have from your answers, so no more questions. Building it now; a main photo can be added in the editor." }, 400);
+      await create({ plan, units }, true);
+      return;
+    }
+    setForm((f) => ({ ...f, name: f.name || base.replace(/[-_.]+/g, " ").trim() || "New project" }));
     await say({ text: "A plan is shy about three things: the name, the address and whether this is for rent or for sale. Please fill that in on the right – a main photo is optional." }, 0);
     cheer("Your turn!");
     setBusy(false);
@@ -142,13 +156,15 @@ export default function AiBuilder() {
 
   const ownPhoto = !!form.image;
   /** project from the plan and the details; the guided part starts here */
-  const create = async () => {
-    if (!found || busy) return;
+  const create = async (got = found, running = false) => {
+    if (!got || (busy && !running)) return;
     setBusy(true);
-    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: found.units, floorPlans: [found.plan] };
+    const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units, floorPlans: [got.plan] };
     const id = (core.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project") + "-" + uid().slice(0, 4);
     const draftP = { ...core, id, template: "atelier" as TemplateId } as Project;
-    const tpl = TEMPLATES.find((t) => t.id === suggest(STEPS[0], draftP, ownPhoto).value) ?? TEMPLATES[0];
+    // the look chosen in the interview wins; without one Pascal suggests
+    const chosen = VIBES.find((v) => v.id === brief?.vibe)?.template;
+    const tpl = TEMPLATES.find((t) => t.id === (chosen ?? suggest(STEPS[0], draftP, ownPhoto).value)) ?? TEMPLATES[0];
     const media = { heroImage: form.image || placeholder("exterior", tpl.accent), gallery: [{ src: placeholder("interior", tpl.accent), caption: "Living room (placeholder)" }, { src: placeholder("kitchen", tpl.accent), caption: "Kitchen (placeholder)" }, { src: placeholder("garden", tpl.accent), caption: "Surroundings (placeholder)" }, { src: placeholder("detail", tpl.accent), caption: "Detail (placeholder)" }] };
     const project: Project = {
       ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: brief?.languages[0] ?? "en", locales: brief?.languages.slice(1), kind: brief?.kind, brief: brief ? { ...brief, name: core.name, start: "ai" } : undefined, accent: tpl.accent, template: tpl.id, isoMode: "3d",
@@ -171,8 +187,9 @@ export default function AiBuilder() {
     const x = proj ?? p;
     setStep(i);
     if (!x) return;
-    if (i >= STEPS.length) { confetti(); cheer("We did it!"); say({ text: "That was the last block. Open the editor for texts, pictures and anything else – every choice can still be changed there.", done: true }, 0); return; }
-    const st = STEPS[i], s = suggest(st, x, ownPhoto);
+    const steps = stepsOf(x);
+    if (i >= steps.length) { confetti(); cheer("We did it!"); say({ text: "That was the last block. Open the editor for texts, pictures and anything else – every choice can still be changed there.", done: true }, 0); return; }
+    const st = steps[i], s = suggest(st, x, ownPhoto);
     const label = st.key === "template" ? TEMPLATES.find((t) => t.id === s.value)?.name : st.variants?.find((v) => v.value === s.value)?.label;
     say({ text: `${st.ask} I suggest “${label}”, because ${s.why}. Have a look at the options and pick the one you like.` }, 0);
   };
@@ -199,7 +216,8 @@ export default function AiBuilder() {
   };
 
   const onFile = (f?: File | null) => { if (f) run(() => planFromFile(f, f.name), f.name); };
-  const st = step >= 0 && step < STEPS.length ? STEPS[step] : null;
+  const steps = stepsOf(p);
+  const st = step >= 0 && step < steps.length ? steps[step] : null;
   const sug = st && p ? suggest(st, p, ownPhoto) : null;
   const current = st && p ? (st.key === "template" ? p.template : String(blockOf(p, st.key)?.props[st.field!] ?? "")) : "";
 
@@ -215,7 +233,7 @@ export default function AiBuilder() {
           <div className="panel flex-1 flex flex-col overflow-hidden lg:sticky lg:top-6" style={{ maxHeight: "calc(100vh - 110px)" }}>
             <div className="px-5 py-4 border-b border-line flex items-center gap-3">
               <span className="relative"><PascalFace mood={busy ? "busy" : quip ? "happy" : "idle"} />{quip ? <span className="quip" key={quip}>{quip}</span> : null}</span>
-              <div><div className="font-semibold">Pascal</div><div className="text-[12px] text-muted">{busy ? "working …" : st ? `step ${step + 1} of ${STEPS.length}` : "ready"}</div></div>
+              <div><div className="font-semibold">Pascal</div><div className="text-[12px] text-muted">{busy ? "working …" : st ? `step ${step + 1} of ${steps.length}` : "ready"}</div></div>
               {busy ? <span className="ml-auto flex gap-1" aria-hidden>{[0, 1, 2].map((i) => <i key={i} className="w-1.5 h-1.5 block" style={{ borderRadius: "50%", background: "var(--accent)", animation: `rise 700ms ${i * 140}ms ease-in-out infinite alternate` }} />)}</span> : null}
             </div>
             <div className="flex-1 overflow-auto p-5 grid gap-4 content-start text-[14px]">
@@ -249,12 +267,28 @@ export default function AiBuilder() {
           ) : !found ? (
             <div className="panel h-full flex flex-col items-center justify-center text-center p-10" style={{ minHeight: 560, borderStyle: "dashed" }}>
               <span className="blob" style={{ width: 64, height: 64, borderRadius: 20 }}><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M8 14h8M8 17h5" /></svg></span>
-              <div className="text-[20px] font-semibold tracking-tight mt-5">Three steps to your website</div>
-              <ol className="text-muted mt-3 grid gap-1 text-left">
-                <li><b className="text-ink">1.</b> Pascal reads rooms and areas from your PDF</li>
-                <li><b className="text-ink">2.</b> You add name, address and a main photo</li>
-                <li><b className="text-ink">3.</b> Block by block, Pascal suggests a version and you choose</li>
-              </ol>
+              {brief ? (
+                <>
+                  <div className="text-[20px] font-semibold tracking-tight mt-5">Only the floor plan is missing</div>
+                  <dl className="known mt-4 text-left">
+                    <div><dt>Name</dt><dd>{form.name}</dd></div>
+                    {form.address || form.city ? <div><dt>Address</dt><dd>{[form.address, [form.zip, form.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</dd></div> : null}
+                    <div><dt>Offer</dt><dd>{form.type === "sale" ? "For sale" : "For rent"}</dd></div>
+                    <div><dt>Look</dt><dd>{VIBES.find((v) => v.id === brief.vibe)?.label ?? "Pascal suggests"}</dd></div>
+                    <div><dt>Sections</dt><dd>{brief.features.length} picked</dd></div>
+                  </dl>
+                  <p className="text-muted text-[13px] mt-4">From your answers. Drop the PDF on the left; Pascal builds the site right after reading it.</p>
+                </>
+              ) : (
+                <>
+                  <div className="text-[20px] font-semibold tracking-tight mt-5">Three steps to your website</div>
+                  <ol className="text-muted mt-3 grid gap-1 text-left">
+                    <li><b className="text-ink">1.</b> Pascal reads rooms and areas from your PDF</li>
+                    <li><b className="text-ink">2.</b> You add name, address and a main photo</li>
+                    <li><b className="text-ink">3.</b> Block by block, Pascal suggests a version and you choose</li>
+                  </ol>
+                </>
+              )}
             </div>
           ) : !p ? (
             <div className="panel p-6 settle">
@@ -290,7 +324,7 @@ export default function AiBuilder() {
                 )}
               </div>
               <div className="flex gap-3 mt-6 pt-5 border-t border-line">
-                <button className="btn btn-primary" disabled={busy || form.name.trim().length < 2} onClick={create}>Build with Pascal →</button>
+                <button className="btn btn-primary" disabled={busy || form.name.trim().length < 2} onClick={() => create()}>Build with Pascal →</button>
               </div>
             </div>
           ) : (
@@ -299,10 +333,10 @@ export default function AiBuilder() {
                 <div className="panel p-5">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div>
-                      <div className="eyebrow">Step {step + 1} of {STEPS.length}</div>
+                      <div className="eyebrow">Step {step + 1} of {steps.length}</div>
                       <h2 className="text-[22px] font-semibold tracking-tight mt-1">{st.title}</h2>
                     </div>
-                    <Tower step={step} total={STEPS.length} />
+                    <Tower step={step} total={steps.length} />
                   </div>
                   <div className="gp-grid mt-4" role="listbox" aria-label={`${st.title} versions`}>
                     {(st.key === "template" ? TEMPLATES.map((t) => ({ value: t.id as string, label: t.name, note: t.note })) : st.variants!.map((v) => ({ ...v, note: "" }))).map((o, i) => {
@@ -326,12 +360,12 @@ export default function AiBuilder() {
                   <div className="flex gap-3 mt-5 pt-4 border-t border-line flex-wrap items-center">
                     <button className="btn" disabled={step === 0} onClick={() => goTo(step - 1)}>← Back</button>
                     {current !== sug.value ? <button className="btn" onClick={() => pick(st, sug.value)}>Take Pascal’s pick</button> : null}
-                    <button className="btn btn-primary ml-auto" onClick={() => goTo(step + 1)}>{step === STEPS.length - 1 ? "Finish" : `Next: ${STEPS[step + 1].title} →`}</button>
+                    <button className="btn btn-primary ml-auto" onClick={() => goTo(step + 1)}>{step === steps.length - 1 ? "Finish" : `Next: ${steps[step + 1].title} →`}</button>
                   </div>
                 </div>
               ) : (
                 <div className="panel p-5 done-card">
-                  <div className="flex items-center gap-4"><Tower step={STEPS.length} total={STEPS.length} /><div>
+                  <div className="flex items-center gap-4"><Tower step={steps.length} total={steps.length} /><div>
                   <div className="eyebrow">Done · roof is on</div>
                   <h2 className="text-[22px] font-semibold tracking-tight mt-1">{p.name} is ready for the editor <span className="wave" aria-hidden>🎉</span></h2></div></div>
                   <div className="flex gap-3 mt-4 flex-wrap">

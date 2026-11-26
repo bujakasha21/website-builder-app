@@ -1995,3 +1995,12 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 /* end of phase 2 styles */
 /* controls in the editor header keep their size; the title gives way instead */
 [class*="_PuckHeader-tools"] .st-seg { flex: none; width: auto; display: inline-grid; grid-auto-flow: column; }
+.known { display: grid; gap: 0; min-width: 300px; }
+.known > div { display: flex; justify-content: space-between; gap: 24px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.known dt { color: var(--muted); }
+.known dd { margin: 0; font-weight: 500; }
+.ob-row { display: grid; grid-template-columns: 2fr 110px 1.4fr; gap: 12px; max-width: 640px; }
+.ob-row .ob-field { margin-top: 18px; }
+.ob-seg { height: 40px; width: max-content; }
+@media (max-width: 760px) { .ob-row { grid-template-columns: 1fr; } }
+/* phase 2 fixes */
