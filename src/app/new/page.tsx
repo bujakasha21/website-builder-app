@@ -3,6 +3,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, ViewTransition } from "react";
 import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
+import NewIntro from "@/components/NewIntro";
 import { saveBriefDraft } from "@/lib/brief";
 import { EXPERIENCE, FEATURES, KIND_FEATURES, KINDS, ROLES, VIBES, type Brief, type FeatureId, type Profile, type Role, type StartMode } from "@/lib/profile";
 import { addProject, saveProfile, uid, useProfile } from "@/lib/store";
@@ -52,6 +53,8 @@ export default function NewSite() {
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<Mode | null>(null);
+  // a short curtain every time "New website" opens (not when only the profile is edited)
+  const [intro, setIntro] = useState(!onlyProfile);
 
   const screens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience", "purposes"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
   if (profile === undefined) return <div className="p-10 text-muted">Loading …</div>;
@@ -113,7 +116,8 @@ export default function NewSite() {
   return (
     <ViewTransition enter="page-in" exit="page-out" default="none">
       <TopBar />
-      <main className="ob">
+      {intro ? <NewIntro first={askProfile} onDone={() => setIntro(false)} /> : null}
+      <main className={`ob ${intro ? "ob-hidden" : "ob-enter"}`}>
         <div className="ob-top">
           <button type="button" className="btn btn-sm btn-ghost" onClick={back}>← Back</button>
           <div className="ob-progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Progress"><i style={{ width: `${pct}%` }} /></div>
