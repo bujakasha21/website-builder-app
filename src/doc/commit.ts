@@ -19,6 +19,12 @@ let options: ApplyOptions = {};
 /** the editor config tells the command layer which blocks and fields exist (kept out of ops.ts so tests need no React) */
 export function configureDoc(o: ApplyOptions) { options = o; }
 
+/** runs page operations on a copy of the given page data (dry run), with the same checks as a real commit */
+export function applyToPage(project: import("@/lib/types").Project, data: import("@puckeditor/core").Data, ops: unknown[]): { ok: true; data: import("@puckeditor/core").Data; summary: string[]; changed: boolean } | { ok: false; error: string } {
+  const r = applyOps({ ...project, draft: data, pages: [], drafts: {} }, ops, options);
+  return r.ok ? { ok: true, data: r.project.draft, summary: r.summary, changed: r.changed } : { ok: false, error: r.error };
+}
+
 export interface CommitMeta { source: Source; label?: string }
 export type CommitResult = { ok: true; changed: boolean; summary: string[]; entry: Entry | null } | { ok: false; error: string };
 
