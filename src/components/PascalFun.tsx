@@ -150,11 +150,11 @@ export function toolboxJump(href: string, go: (href: string) => void) {
 }
 
 /** a link that travels with a curtain: Pascal's green flood, or the toolbox shutters */
-export function PascalLink({ href, className, style, children, look = "pascal" }: { href: string; className?: string; style?: React.CSSProperties; children: React.ReactNode; look?: "pascal" | "toolbox" }) {
+export function PascalLink({ href, className, style, children, look = "pascal", onClick }: { href: string; className?: string; style?: React.CSSProperties; children: React.ReactNode; look?: "pascal" | "toolbox"; /** runs before the page changes */ onClick?: () => void }) {
   const router = useRouter();
   return (
     <Link href={href} className={className} style={style} onMouseEnter={() => router.prefetch(href)}
-      onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); const go = (h: string) => router.push(h); if (look === "toolbox") toolboxJump(href, go); else pascalJump(e.clientX, e.clientY, href, go); }}>
+      onClick={(e) => { onClick?.(); if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); const go = (h: string) => router.push(h); if (look === "toolbox") toolboxJump(href, go); else pascalJump(e.clientX, e.clientY, href, go); }}>
       {children}
     </Link>
   );

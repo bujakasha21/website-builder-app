@@ -1,6 +1,6 @@
 "use client";
 import { syncShare } from "@/lib/share";
-import { Puck, Render, usePuck, type Data } from "@puckeditor/core";
+import { blocksPlugin, outlinePlugin, Puck, Render, usePuck, type Data } from "@puckeditor/core";
 import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -12,7 +12,12 @@ import { BlockBar, VersionGallery } from "@/editor/VariantField";
 import PascalBar from "@/components/PascalBar";
 import TextMenu from "@/editor/pascal/TextMenu";
 import { composePage, findPage, freeSlug, splitPage } from "@/lib/sitedata";
-import { uid, updateProject, useProject } from "@/lib/store";
+import { getProject, uid, updateProject, useProfile, useProject } from "@/lib/store";
+import { isGuided } from "@/lib/profile";
+import { commit, takeTag } from "@/doc/commit";
+import { autoVersion, saveVersion } from "@/doc/versions";
+import HistoryPanel, { UndoRedo } from "@/editor/HistoryPanel";
+import { flag } from "@/lib/flags";
 import { buildSubPage, PAGE_KINDS } from "@/lib/templates";
 import type { Project, SitePage } from "@/lib/types";
 
@@ -39,7 +44,7 @@ function BlockItem({ name, children, projectId }: { name: string; children: Reac
 
 // Puck treats overrides as components: they must keep their identity between renders,
 // otherwise everything inside them (open tab of the settings panel, Pascal's chat) is reset on every change
-interface Ctx { id: string; p: Project; page: SitePage | null; goPage: (slug: string | null) => void; mutate: (fn: (x: Project) => Project) => void; saved: "saved" | "saving"; langs: string[]; cur: string; qs: string; switchLang: (l: string) => void; settings: boolean; setSettings: (v: boolean) => void }
+interface Ctx { id: string; p: Project; page: SitePage | null; goPage: (slug: string | null) => void; mutate: (ops: unknown[], label: string) => void; saved: "saved" | "saving"; langs: string[]; cur: string; qs: string; switchLang: (l: string) => void; settings: boolean; setSettings: (v: boolean) => void; settingsTab: SettingsTab | undefined; openSettings: (tab?: SettingsTab) => void; flush: () => void; reload: () => void; history: boolean; setHistory: (v: boolean) => void }
 const EditorCtx = createContext<Ctx | null>(null);
 
 // two sizes only, with words: the phone is 390 px wide, the desktop view is scaled to fit the canvas
@@ -64,10 +69,21 @@ function PascalDock() {
   return <PascalBar mode="editor" project={c.p} data={appState.data} selectedId={(selectedItem?.props.id as string | undefined) ?? null} onData={(d) => dispatch({ type: "setData", data: d })} onOpenSettings={() => c.setSettings(true)} />;
 }
 
+type Link = { label: string; href: string };
+/** an operation that rewrites the menu bar's links (none if the page has no menu bar) */
+function headerLinks(p: Project, fn: (links: Link[]) => Link[]) {
+  const h = p.draft.content.find((b) => b.type === "Header");
+  return h ? [{ op: "updateBlock", id: h.props.id as string, props: { links: fn(((h.props as { links?: Link[] }).links ?? [])) } }] : [];
+}
+
 /** which page of the site is being edited, plus adding, renaming and removing pages */
-function PagesMenu() {
+type SettingsTab = "Look" | "Menu" | "Pop-up" | "Disturber" | "Languages" | "Legal";
+/** required on every Swiss site; their text lives in the home page's settings, so they cannot be deleted */
+const LEGAL_PAGES = [{ slug: "imprint", title: "Impressum" }, { slug: "privacy", title: "Datenschutz" }];
+
+/** every page of the site with go-to, rename, delete and add; used in the header menu and in the left "Pages" panel */
+function PagesList({ close }: { close?: () => void }) {
   const c = useContext(EditorCtx)!;
-  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const pages = c.p.pages ?? [];
   const add = (kind: string, title: string) => {
@@ -76,13 +92,9 @@ function PagesMenu() {
     const hero = c.p.draft.content.find((b) => b.type === "Hero")?.props as { image?: string } | undefined;
     const gal = c.p.draft.content.find((b) => b.type === "Gallery")?.props as { images?: { src: string; caption: string }[] } | undefined;
     const draft = buildSubPage(kind, title, { ...c.p, heroImage: hero?.image, gallery: gal?.images }, tpl);
-    c.mutate((x) => ({
-      ...x,
-      pages: [...(x.pages ?? []), { id: uid(), slug, title, draft, published: null }],
-      // the new page goes into the menu bar straight away
-      draft: { ...x.draft, content: x.draft.content.map((b) => (b.type === "Header" ? { ...b, props: { ...b.props, links: [...((b.props as { links?: { label: string; href: string }[] }).links ?? []), { label: title, href: `/${slug}` }] } } : b)) },
-    }));
-    setAdding(false); setOpen(false);
+    // the new page goes into the menu bar straight away
+    c.mutate([{ op: "createPage", id: uid(), title, slug, content: draft.content }, ...headerLinks(c.p, (l) => [...l, { label: title, href: `/${slug}` }])], `Added page “${title}”`);
+    setAdding(false); close?.();
     c.goPage(slug);
   };
   const [del, setDel] = useState<string | null>(null);
@@ -91,58 +103,80 @@ function PagesMenu() {
     const title = raw.trim();
     setRen(null);
     if (!title || title === pg.title) return;
-    c.mutate((x) => ({ ...x, pages: (x.pages ?? []).map((q) => (q.id === pg.id ? { ...q, title } : q)), draft: { ...x.draft, content: x.draft.content.map((b) => (b.type === "Header" ? { ...b, props: { ...b.props, links: ((b.props as { links?: { label: string; href: string }[] }).links ?? []).map((l) => (l.href === `/${pg.slug}` && l.label === pg.title ? { ...l, label: title } : l)) } } : b)) } }));
+    c.mutate([{ op: "renamePage", page: pg.id, title }, ...headerLinks(c.p, (l) => l.map((x) => (x.href === `/${pg.slug}` && x.label === pg.title ? { ...x, label: title } : x)))], `Renamed page “${pg.title}”`);
   };
   const remove = (pg: SitePage) => {
     setDel(null);
     if (c.page?.id === pg.id) c.goPage(null);
-    c.mutate((x) => ({ ...x, pages: (x.pages ?? []).filter((q) => q.id !== pg.id), draft: { ...x.draft, content: x.draft.content.map((b) => (b.type === "Header" ? { ...b, props: { ...b.props, links: ((b.props as { links?: { label: string; href: string }[] }).links ?? []).filter((l) => l.href !== `/${pg.slug}`) } } : b)) } }));
+    c.mutate([{ op: "deletePage", page: pg.id }, ...headerLinks(c.p, (l) => l.filter((x) => x.href !== `/${pg.slug}`))], `Deleted page “${pg.title}”`);
   };
-  return (
-    <div className="pg-menu">
-      <button type="button" className="btn btn-sm pg-cur" style={{ height: 34 }} aria-expanded={open} onClick={() => { setOpen(!open); setAdding(false); }}>
-        <small>Page</small>{c.page?.title ?? "Home"}<i aria-hidden>▾</i>
-      </button>
-      {open ? (
-        <div className="pg-pop rise" role="menu">
-          {adding ? (
-            <>
-              <div className="pg-head">Add a page</div>
-              {PAGE_KINDS.map((k) => <button key={k.id} type="button" role="menuitem" className="pg-kind" onClick={() => add(k.id, k.title)}><b>{k.title}</b><span>{k.note}</span></button>)}
-              <button type="button" className="pg-back" onClick={() => setAdding(false)}>← Back</button>
-            </>
+  return adding ? (
+    <>
+      <div className="pg-head">Add a page</div>
+      {PAGE_KINDS.map((k) => <button key={k.id} type="button" role="menuitem" className="pg-kind" onClick={() => add(k.id, k.title)}><b>{k.title}</b><span>{k.note}</span></button>)}
+      <button type="button" className="pg-back" onClick={() => setAdding(false)}>← Back</button>
+    </>
+  ) : (
+    <>
+      <button type="button" role="menuitem" className="pg-row" aria-current={!c.page ? "page" : undefined} onClick={() => { c.goPage(null); close?.(); }}><b>Home</b><span>/</span></button>
+      {LEGAL_PAGES.map((l) => (
+        <div key={l.slug} className="pg-row pg-legal">
+          <button type="button" role="menuitem" onClick={() => { c.openSettings("Legal"); close?.(); }} title={`Edit the ${l.title} text`}><b>{l.title}</b><span>/legal/{l.slug}</span></button>
+          <a className="pg-act" href={`/site/${c.id}/legal/${l.slug}?${c.qs}`} target="_blank" rel="noreferrer" title={`Open the ${l.title} page`} aria-label={`Open the ${l.title} page`}>↗</a>
+        </div>
+      ))}
+      {pages.map((pg) => (
+        <div key={pg.id} className="pg-row" aria-current={c.page?.id === pg.id ? "page" : undefined}>
+          {ren?.id === pg.id ? (
+            <form className="pg-ren" onSubmit={(e) => { e.preventDefault(); rename(pg, ren.title); }}><input autoFocus value={ren.title} onChange={(e) => setRen({ id: pg.id, title: e.target.value })} onBlur={() => rename(pg, ren.title)} aria-label="Page name" /></form>
+          ) : del === pg.id ? (
+            <><span className="pg-ask">Delete this page and its menu link?</span><button type="button" className="pg-yes" onClick={() => remove(pg)}>Delete</button><button type="button" className="pg-act" aria-label="Keep the page" onClick={() => setDel(null)}>×</button></>
           ) : (
             <>
-              <button type="button" role="menuitem" className="pg-row" aria-current={!c.page ? "page" : undefined} onClick={() => { c.goPage(null); setOpen(false); }}><b>Home</b><span>/</span></button>
-              {pages.map((pg) => (
-                <div key={pg.id} className="pg-row" aria-current={c.page?.id === pg.id ? "page" : undefined}>
-                  {ren?.id === pg.id ? (
-                    <form className="pg-ren" onSubmit={(e) => { e.preventDefault(); rename(pg, ren.title); }}><input autoFocus value={ren.title} onChange={(e) => setRen({ id: pg.id, title: e.target.value })} onBlur={() => rename(pg, ren.title)} aria-label="Page name" /></form>
-                  ) : del === pg.id ? (
-                    <><span className="pg-ask">Delete this page and its menu link?</span><button type="button" className="pg-yes" onClick={() => remove(pg)}>Delete</button><button type="button" className="pg-act" aria-label="Keep the page" onClick={() => setDel(null)}>×</button></>
-                  ) : (
-                    <>
-                      <button type="button" role="menuitem" onClick={() => { c.goPage(pg.slug); setOpen(false); }}><b>{pg.title}</b><span>/{pg.slug}</span></button>
-                      <button type="button" className="pg-act" title="Rename" aria-label={`Rename ${pg.title}`} onClick={() => setRen({ id: pg.id, title: pg.title })}>✎</button>
-                      <button type="button" className="pg-act" title="Delete" aria-label={`Delete ${pg.title}`} onClick={() => setDel(pg.id)}>×</button>
-                    </>
-                  )}
-                </div>
-              ))}
-              <button type="button" className="pg-add" onClick={() => setAdding(true)}>+ Add a page</button>
-              <p className="pg-note">The menu bar and footer are the same on every page. Publish puts all pages live.</p>
+              <button type="button" role="menuitem" onClick={() => { c.goPage(pg.slug); close?.(); }}><b>{pg.title}</b><span>/{pg.slug}</span></button>
+              <button type="button" className="pg-act" title="Rename" aria-label={`Rename ${pg.title}`} onClick={() => setRen({ id: pg.id, title: pg.title })}>✎</button>
+              <button type="button" className="pg-act" title="Delete" aria-label={`Delete ${pg.title}`} onClick={() => setDel(pg.id)}>×</button>
             </>
           )}
         </div>
-      ) : null}
+      ))}
+      <button type="button" className="pg-add" onClick={() => setAdding(true)}>+ Add a page</button>
+      <p className="pg-note">Impressum and Datenschutz are on every site and linked in the footer; their text is under Site settings → Legal. The menu bar and footer are the same on every page. Publish puts all pages live.</p>
+    </>
+  );
+}
+
+function PagesMenu() {
+  const c = useContext(EditorCtx)!;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pg-menu">
+      <button type="button" className="btn btn-sm pg-cur" style={{ height: 34 }} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <small>Page</small>{c.page?.title ?? "Home"}<i aria-hidden>▾</i>
+      </button>
+      {open ? <div className="pg-pop rise" role="menu"><PagesList close={() => setOpen(false)} /></div> : null}
     </div>
   );
 }
+
+/** the "Pages" panel in Puck's left rail */
+function PagesPanel() {
+  return (
+    <div className="pg-panel" role="menu" aria-label="Pages">
+      <PagesList />
+    </div>
+  );
+}
+const pagesIcon = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M8 3h9l3 3v12H8z" /><path d="M4 7v14h11" /></svg>;
+// Puck lists its own panels first; a plugin given again moves to the end, so this reads: Pages, Layers, Blocks
+const PLUGINS = [{ name: "pages", label: "Pages", icon: pagesIcon, render: PagesPanel }, outlinePlugin({ label: "Layers" }), blocksPlugin()];
 
 function HeaderActions({ children }: { children: React.ReactNode }) {
   const c = useContext(EditorCtx)!;
   return (
     <>
+      <Link className="btn btn-sm editor-home" style={{ height: 34, width: 34, padding: 0, justifyContent: "center" }} href="/" onClick={c.flush} title="Back to the home page" aria-label="Home"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" /></svg></Link>
+      {flag("history") ? <UndoRedo projectId={c.id} before={c.flush} after={c.reload} /> : null}
       <PagesMenu />
       <VersionGallery projectId={c.id} />
       <ViewSwitch />
@@ -152,10 +186,12 @@ function HeaderActions({ children }: { children: React.ReactNode }) {
           {c.langs.map((l) => <button key={l} aria-pressed={l === c.cur} onClick={() => c.switchLang(l)}>{LANG_NAME[l] ?? l}</button>)}
         </div>
       ) : null}
-      <Link className="btn btn-sm" style={{ height: 34 }} href={`/p/${c.id}`}>Dashboard</Link>
+      <Link className="btn btn-sm" style={{ height: 34 }} href={`/p/${c.id}`} onClick={c.flush}>Project</Link>
       <a className="btn btn-sm" style={{ height: 34 }} href={`/site/${c.id}${c.page ? `/${c.page.slug}` : ""}?${c.qs}`} target="_blank">Preview</a>
-      <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.settings} onClick={() => c.setSettings(!c.settings)}>Site settings</button>
-      {c.settings ? <SettingsDrawer project={c.p} onClose={() => c.setSettings(false)} /> : null}
+      <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.settings} onClick={() => (c.settings ? c.setSettings(false) : c.openSettings())}>Site settings</button>
+      {flag("history") ? <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.history} onClick={() => { c.setHistory(!c.history); c.setSettings(false); }}>History</button> : null}
+      {c.settings ? <SettingsDrawer key={c.settingsTab ?? "default"} project={c.p} initialTab={c.settingsTab} onClose={() => c.setSettings(false)} /> : null}
+      {c.history ? <HistoryPanel projectId={c.id} before={c.flush} after={c.reload} onClose={() => c.setHistory(false)} /> : null}
       <PascalDock />
       {children}
     </>
@@ -199,7 +235,17 @@ export default function Editor() {
   const [saved, setSaved] = useState<"saved" | "saving">("saved");
   const [done, setDone] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
+  const openSettings = (tab?: SettingsTab) => { setSettingsTab(tab); setSettings(true); setHistory(false); };
   const [nonce, setNonce] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState(false);
+  const loaded = !!p;
+  // beginners get the calmer editor: advanced options folded away (set in the profile on /new)
+  const profile = useProfile();
+  const guided = profile !== undefined && isGuided(profile);
+  useEffect(() => { document.body.classList.toggle("ui-guided", guided); return () => document.body.classList.remove("ui-guided"); }, [guided]);
+  useEffect(() => { if (id && loaded) autoVersion(id, "Opened the editor"); }, [id, loaded]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   if (p === undefined) return <Loading />;
@@ -213,12 +259,16 @@ export default function Editor() {
   const key = `${cur}:${page?.id ?? ""}:${nonce}`;
   // each language edits its own copy; a new language starts as a copy of the main page
   if (!start.current || start.current.key !== key) start.current = { key, data: page ? composePage(p.draft, page.draft) : main ? p.draft : p.drafts?.[cur] ?? (JSON.parse(JSON.stringify(p.draft)) as Data) };
-  const tplOf = (data: Data, x: Project) => ((data.root.props as Record<string, unknown> | undefined)?.template as Project["template"]) ?? x.template;
-  const save = (data: Data, l: string, pageId?: string) =>
-    updateProject(id, (x) => {
-      if (pageId) { const s = splitPage(x.draft, data); return { ...x, draft: s.home, template: tplOf(data, x), pages: (x.pages ?? []).map((q) => (q.id === pageId ? { ...q, draft: s.own } : q)) }; }
-      return l === x.locale ? { ...x, draft: data, template: tplOf(data, x) } : { ...x, drafts: { ...(x.drafts ?? {}), [l]: data } };
-    });
+  // every save is an operation: validated, recorded for undo, labelled with what really changed
+  const save = (data: Data, l: string, pageId?: string) => {
+    const x = getProject(id);
+    if (!x) return;
+    const ops = pageId
+      ? (() => { const s = splitPage(x.draft, data); return [{ op: "replacePageData", data: s.home }, { op: "replacePageData", page: pageId, data: s.own }]; })()
+      : [{ op: "replacePageData", lang: l === x.locale ? undefined : l, data }];
+    const r = commit(id, ops, takeTag(id) ?? { source: "user" });
+    if (!r.ok) setError(r.error);
+  };
   const flush = () => {
     if (timer.current) clearTimeout(timer.current);
     if (last.current) save(last.current, cur, page?.id);
@@ -227,12 +277,14 @@ export default function Editor() {
   };
   const switchLang = (l: string) => { flush(); setLang(l); };
   // changes made outside the canvas (pages, menu links): save what is open first, then reload the canvas from the store
-  const mutate = (fn: (x: Project) => Project) => { flush(); updateProject(id, fn); setNonce((n) => n + 1); };
+  const mutate = (ops: unknown[], label: string) => { flush(); const r = commit(id, ops, { source: "user", label }); if (!r.ok) setError(r.error); setNonce((n) => n + 1); };
+  /** after undo, redo or a restore the canvas reloads from the store */
+  const reload = () => { flush(); setNonce((n) => n + 1); };
   const goPage = (s: string | null) => { flush(); router.push(`/edit/${id}${s ? `?page=${s}` : ""}`); };
   const qs = `draft=1${main ? "" : `&lang=${cur}`}`;
 
   return (
-    <EditorCtx.Provider value={{ id, p, page, goPage, mutate, saved, langs, cur, qs, switchLang, settings, setSettings }}>
+    <EditorCtx.Provider value={{ id, p, page, goPage, mutate, saved, langs, cur, qs, switchLang, settings, setSettings, settingsTab, openSettings, flush, reload, history, setHistory }}>
       <Puck
         key={key}
         config={config}
@@ -257,11 +309,14 @@ export default function Editor() {
             return { ...x, draft: s.home, published: s.home, publishedAt: Date.now(), pages: (x.pages ?? []).map((q) => { const d = page && q.id === page.id && s.own ? s.own : q.draft; return { ...q, draft: d, published: d }; }) };
           });
           updateProject(id, (x) => (main ? x : { ...x, drafts: { ...(x.drafts ?? {}), [cur]: data }, publishedByLocale: { ...(x.publishedByLocale ?? {}), [cur]: data }, publishedAt: Date.now() }));
+          saveVersion(id, `Published${main ? "" : ` (${cur})`}`, true);
           setDone(true);
         }}
         overrides={OVERRIDES}
+        plugins={PLUGINS}
         viewports={VIEWPORTS}
       />
+      {error ? <div className="toast-error" role="alert"><span>Not saved: {error}</span><button className="btn btn-sm btn-ghost" onClick={() => setError(null)} aria-label="Dismiss">×</button></div> : null}
       {done && (
         <div role="dialog" aria-modal aria-label="Published" onClick={() => setDone(false)} style={{ position: "fixed", inset: 0, background: "rgba(28,27,25,0.35)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div className="panel settle" onClick={(e) => e.stopPropagation()} style={{ width: 520, overflow: "hidden" }}>

@@ -1,7 +1,10 @@
 "use client";
 import { useSyncExternalStore } from "react";
 import type { Project } from "./types";
+import type { Profile } from "./profile";
 import { seedProjects } from "./seed";
+import { collectDataUrls, dehydrate, hasRefs, rehydrate } from "@/doc/assets";
+import { migrateAll } from "@/doc/migrate";
 
 // Preview persistence: everything lives in the browser (IndexedDB), shared across tabs.
 interface Db {
@@ -10,36 +13,78 @@ interface Db {
 
 const DB_NAME = "sitebuilder-preview";
 const KEY = "db-v2";
+/** the unchanged pre-asset-store copy, written once before the first save in the new format */
+const BACKUP_KEY = "db-v2-backup-before-assets";
+const DB_VERSION = 2;
 let state: Db | null = null;
 let loading = false;
 const listeners = new Set<() => void>();
 let channel: BroadcastChannel | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** hashes already in the assets store */
+const stored = new Set<string>();
+let writing: Promise<void> = Promise.resolve();
 
-function idb(): Promise<IDBDatabase> {
-  return new Promise((res, rej) => {
-    const r = indexedDB.open(DB_NAME, 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("kv");
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
+// one connection per tab: v1 opened a new one on every read and never closed it
+let dbp: Promise<IDBDatabase> | null = null;
+export function idb(): Promise<IDBDatabase> {
+  if (dbp) return dbp;
+  dbp = new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, DB_VERSION);
+    r.onupgradeneeded = () => { for (const s of ["kv", "assets", "versions"]) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s); };
+    r.onsuccess = () => { const d = r.result; d.onversionchange = () => { d.close(); dbp = null; }; res(d); };
+    r.onerror = () => { dbp = null; rej(r.error); };
+    r.onblocked = () => console.warn("[store] another tab still has the old database open; reload it");
+  });
+  return dbp;
+}
+export async function req<T>(store: "kv" | "assets" | "versions", mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const d = await idb();
+  return new Promise<T>((res, rej) => {
+    const t = d.transaction(store, mode);
+    const r = fn(t.objectStore(store));
+    t.oncomplete = () => res(r.result);
+    t.onerror = () => rej(t.error);
   });
 }
-async function idbGet(): Promise<Db | undefined> {
+const kvGet = <T,>(k: string) => req<T | undefined>("kv", "readonly", (s) => s.get(k) as IDBRequest<T | undefined>);
+const kvPut = (k: string, v: unknown) => req("kv", "readwrite", (s) => s.put(v, k));
+
+/** writes the images in `assets` that are not stored yet */
+export async function putAssets(assets: Map<string, string>) {
+  const fresh = [...assets].filter(([h]) => !stored.has(h));
+  if (!fresh.length) return;
   const d = await idb();
-  return new Promise((res, rej) => {
-    const r = d.transaction("kv").objectStore("kv").get(KEY);
-    r.onsuccess = () => res(r.result as Db | undefined);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function idbPut(v: Db) {
-  const d = await idb();
-  return new Promise<void>((res, rej) => {
-    const t = d.transaction("kv", "readwrite");
-    t.objectStore("kv").put(v, KEY);
+  await new Promise<void>((res, rej) => {
+    const t = d.transaction("assets", "readwrite");
+    for (const [h, url] of fresh) t.objectStore("assets").put(url, h);
     t.oncomplete = () => res();
     t.onerror = () => rej(t.error);
   });
+  fresh.forEach(([h]) => stored.add(h));
+}
+const assetCache = new Map<string, string>();
+export async function loadAssets(): Promise<(h: string) => string | undefined> {
+  const d = await idb();
+  await new Promise<void>((res, rej) => {
+    const t = d.transaction("assets");
+    const c = t.objectStore("assets").openCursor();
+    c.onsuccess = () => { const cur = c.result; if (!cur) return; assetCache.set(String(cur.key), cur.value as string); stored.add(String(cur.key)); cur.continue(); };
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+  return (h) => assetCache.get(h);
+}
+
+async function readDb(): Promise<Db | undefined> {
+  const raw = await kvGet<Db>(KEY);
+  if (!raw) return undefined;
+  if (!hasRefs(raw)) {
+    // first load after the asset store came in: keep the old blob once, untouched
+    if (collectDataUrls(raw).size && !(await kvGet(BACKUP_KEY))) await kvPut(BACKUP_KEY, raw);
+    return raw;
+  }
+  return rehydrate(raw, await loadAssets());
 }
 
 function emit() {
@@ -49,28 +94,39 @@ function emit() {
 async function load() {
   if (loading) return;
   loading = true;
+  let migrated = false;
   try {
-    state = (await idbGet()) ?? { projects: seedProjects() };
-  } catch {
+    const db = (await readDb()) ?? { projects: seedProjects() };
+    const projects = migrateAll(db.projects);
+    migrated = projects.some((p, i) => p !== db.projects[i]);
+    state = { projects };
+  } catch (e) {
+    console.error("[store] could not read the saved projects", e);
     state = { projects: seedProjects() };
   }
   channel = new BroadcastChannel(DB_NAME);
   channel.onmessage = async () => {
-    const fresh = await idbGet();
+    const fresh = await readDb();
     if (fresh) {
-      state = fresh;
+      state = { projects: migrateAll(fresh.projects) };
       emit();
     }
   };
   emit();
+  if (migrated) persist();
 }
 
 function persist() {
   if (timer) clearTimeout(timer);
-  timer = setTimeout(async () => {
-    if (!state) return;
-    await idbPut(state);
-    channel?.postMessage("changed");
+  timer = setTimeout(() => {
+    const snap = state;
+    if (!snap) return;
+    writing = writing.then(async () => {
+      const { value, assets } = await dehydrate(snap);
+      await putAssets(assets);
+      await kvPut(KEY, value);
+      channel?.postMessage("changed");
+    }).catch((e) => console.error("[store] save failed", e));
   }, 120);
 }
 
@@ -97,6 +153,14 @@ export function getProject(id: string) {
 export function updateProject(id: string, fn: (p: Project) => Project) {
   if (!state) return;
   state = { projects: state.projects.map((p) => (p.id === id ? fn(p) : p)) };
+  emit();
+  persist();
+}
+
+/** puts a whole project back (undo, redo, restore, operations) */
+export function replaceProject(p: Project) {
+  if (!state) return;
+  state = { projects: state.projects.map((x) => (x.id === p.id ? p : x)) };
   emit();
   persist();
 }
@@ -130,3 +194,19 @@ export function resetDemo() {
 }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
+
+// ── the builder's own profile (who they are, experience): one per browser in this preview ──
+let profile: Profile | null | undefined;
+const profileListeners = new Set<() => void>();
+function loadProfile() {
+  kvGet<Profile>("profile").then((p) => { profile = p ?? null; profileListeners.forEach((l) => l()); }).catch(() => { profile = null; profileListeners.forEach((l) => l()); });
+}
+/** undefined while loading, null when the questions were never answered */
+export function useProfile(): Profile | null | undefined {
+  return useSyncExternalStore((l) => { profileListeners.add(l); if (profile === undefined) loadProfile(); return () => profileListeners.delete(l); }, () => profile, () => undefined);
+}
+export async function saveProfile(p: Profile) {
+  profile = p;
+  profileListeners.forEach((l) => l());
+  await kvPut("profile", p);
+}

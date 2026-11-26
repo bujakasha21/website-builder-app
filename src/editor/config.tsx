@@ -13,6 +13,8 @@ import { Embed, Faq, Footer, LegalPage, TRAVEL_MODES, useLegalHref } from "./ext
 import { registerConfig, variantField } from "./VariantField";
 import { DEFAULTS, sizeVars } from "./settings";
 import SiteRoot from "./SiteRoot";
+import { configureDoc } from "@/doc/commit";
+import { MORE_COMPONENTS } from "./more";
 import { FINDER_VARIANTS, UnitFinder, UnitPage } from "./UnitFinder";
 
 /** shortcut from the block to the page where apartments, columns and the apply button are managed */
@@ -402,8 +404,9 @@ const TA = (label: string) => ({ type: "textarea" as const, label, contentEditab
 
 export const config: Config = {
   categories: {
-    content: { title: "Content", components: ["Header", "Hero", "Advantages", "TextImage", "Text", "Facts", "Gallery", "Embed", "Faq", "Downloads"] },
+    content: { title: "Content", components: ["Header", "Hero", "Advantages", "TextImage", "Text", "Facts", "Gallery", "Embed", "Blog", "Testimonials", "Faq", "Downloads"] },
     offer: { title: "Offer", components: ["UnitFinder", "UnitList", "FloorPlanBlock", "Location"] },
+    business: { title: "Business", components: ["Booking", "Shops", "Hours", "Newsletter"] },
     contact: { title: "Contact", components: ["ContactForm", "Waitlist", "Viewing", "Contacts", "Footer"] },
     internal: { title: "Internal", components: ["UnitPage", "LegalPage"], visible: false },
     other: { title: "Other", visible: false },
@@ -415,6 +418,7 @@ export const config: Config = {
     render: SiteRoot as any,
   },
   components: {
+    ...(MORE_COMPONENTS as any),
     Header: {
       label: "Menu bar",
       fields: {
@@ -672,3 +676,11 @@ for (const [name, c] of Object.entries(config.components) as [string, any][]) {
   };
 }
 registerConfig(config);
+
+// the command layer validates AI and editor operations against the blocks and fields that exist here
+configureDoc({
+  registry: Object.fromEntries(
+    Object.entries(config.components as Record<string, any>).map(([type, c]) => [type, { label: c.label, fields: [...new Set([...Object.keys(c.fields ?? {}), ...Object.keys(c.defaultProps ?? {}), "_adv", "titleSize", "textSize"])] }]),
+  ),
+  defaults: (type) => JSON.parse(JSON.stringify((config.components as Record<string, any>)[type]?.defaultProps ?? {})),
+});

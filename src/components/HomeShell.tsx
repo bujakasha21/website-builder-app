@@ -1,5 +1,7 @@
 "use client";
 import Link from "next/link";
+import { useProfile } from "@/lib/store";
+import { EXPERIENCE, ROLES } from "@/lib/profile";
 import { ViewTransition } from "react";
 import PascalBar from "./PascalBar";
 import Playground from "./Playground";
@@ -18,6 +20,7 @@ export const USER = { name: "Davor", initials: "DB" };
 /** shell for the home area: tools on the left, content on the right */
 export default function HomeShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const profile = useProfile();
   return (
     <ViewTransition enter="page-in" exit="page-out" default="none">
     <div className="flex-1 flex min-h-screen home-shell">
@@ -45,7 +48,8 @@ export default function HomeShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="mt-auto p-4 border-t border-line flex items-center gap-3">
           <span className="w-8 h-8 flex items-center justify-center text-xs font-semibold" style={{ borderRadius: "50%", background: "var(--accent)", color: "var(--accent-ink)" }}>{USER.initials}</span>
-          <span><span className="block text-[13px] font-medium">{USER.name}</span><span className="block text-[12px] text-muted">Demo account</span></span>
+          <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium">{USER.name}</span><span className="block text-[12px] text-muted truncate">{profile ? `${ROLES.find((r) => r.id === profile.role)?.label ?? profile.roleOther ?? "Other"} · ${EXPERIENCE.find((x) => x.id === profile.experience)?.label}` : "Demo account"}</span></span>
+          <Link href="/new?profile=1" className="btn btn-sm btn-ghost" title="Edit your profile" aria-label="Edit your profile">Edit</Link>
         </div>
       </aside>
       <main className="flex-1 min-w-0 px-8 pt-10 pb-32 home-main"><div className="max-w-[1080px] mx-auto">{children}</div></main>

@@ -1,5 +1,8 @@
 import type { Data } from "@puckeditor/core";
 import type { Project, TemplateId, Unit } from "./types";
+import type { Brief, FeatureId } from "./profile";
+import { SECTION_DEFAULTS } from "./section-defaults";
+import { writeCopy } from "./copy";
 
 type Tpl = { id: TemplateId; name: string; note: string; head: string; body: string; accent: string; hero: string; heroHeight?: string; heroAlign?: string; nav: string; advantages: string; textImage: string; gallery: string; map: string };
 /** the three templates a new site can start from: fonts, colour and the block versions each one opens with */
@@ -49,7 +52,7 @@ export function facts(p: Pick<Project, "units" | "type">) {
 
 let n = 0;
 const id = (t: string) => `${t}-${Date.now().toString(36)}${(n++).toString(36)}`;
-const block = (type: string, props: Record<string, unknown>) => ({ type, props: { id: id(type), ...props } });
+const block = (type: string, props: Record<string, unknown>) => ({ type, props: { id: id(type), ...props } as Record<string, unknown> & { id: string } });
 
 type Base = Pick<Project, "name" | "address" | "zip" | "city" | "type" | "units" | "floorPlans"> & { heroImage?: string; gallery?: { src: string; caption: string }[] };
 
@@ -135,7 +138,76 @@ function starter(p: Base, template: TemplateId) {
   return { tpl, header, hero, advantages, textImage, text, factsBlock, finder, waitlist, gallery, location, viewing, contact, contacts, footer };
 }
 
-export function buildPage(p: Base, template: TemplateId): Data {
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+const ANCHOR: Record<string, [string, string]> = {
+  TextImage: ["Project", "#project"], UnitFinder: ["Apartments", "#units"], Shops: ["Shops", "#shops"], Booking: ["Book", "#booking"],
+  Hours: ["Opening hours", "#hours"], Blog: ["News", "#news"], Gallery: ["Gallery", "#gallery"], Location: ["Location", "#location"],
+};
+
+/**
+ * The page a new site starts with, built from the interview: only the features the owner picked, in a sensible order,
+ * menu links to the main sections. Without a brief this is the classic residential page (buildPage).
+ */
+function fromBrief(p: Base, template: TemplateId, brief: Brief): Data {
+  const b = starter(p, template);
+  const F = new Set<FeatureId>(brief.features);
+  const property = brief.kind === "residential" || brief.kind === "commercial";
+  // Pascal's texts from the interview (src/lib/copy.ts): the owner's own description first, neutral starters otherwise
+  const c = brief.copy ?? writeCopy(brief, { city: p.city, address: p.address });
+  if (!property || !p.units.length) {
+    b.hero.props.text = c.heroText;
+    b.hero.props.eyebrow = [p.city, KIND_EYEBROW[brief.kind]].filter(Boolean).join(" · ");
+  }
+  b.textImage.props.title = c.aboutTitle;
+  b.textImage.props.text = c.aboutText;
+  b.advantages.props.title = c.advantagesTitle;
+  if (c.advantages.length) b.advantages.props.items = c.advantages;
+  b.contact.props.text = c.contactText;
+  if (F.has("units") || F.has("isometry")) b.finder.props.variant = F.has("isometry") ? "split" : "table";
+  // the hero button leads to the most important section the site actually has
+  const heroTarget: [FeatureId, string, string][] = [["units", "View apartments", "#units"], ["isometry", "View apartments", "#units"], ["shops", "See the shops", "#shops"], ["booking", "Book now", "#booking"], ["blog", "Read the news", "#news"], ["contact", "Get in touch", "#contact"]];
+  const go = heroTarget.find(([f]) => F.has(f));
+  b.hero.props.cta = go?.[1] ?? "";
+  b.hero.props.ctaHref = go?.[2] ?? "";
+  if (!(F.has("units") || F.has("isometry"))) { b.textImage.props.cta = ""; b.textImage.props.ctaHref = ""; }
+  const sec = (type: string, props: Record<string, unknown> = {}) => block(type, { ...clone((SECTION_DEFAULTS as Record<string, Record<string, unknown>>)[type] ?? {}), ...props });
+  const pick = (f: FeatureId, x: ReturnType<typeof block>) => (F.has(f) ? [x] : []);
+  const order = [
+    b.header, b.hero,
+    ...(property ? [b.advantages] : []),
+    b.textImage,
+    ...(F.has("facts") && p.units.length ? [b.factsBlock] : []),
+    ...(F.has("units") || F.has("isometry") ? [b.finder] : []),
+    ...pick("tour", block("Embed", { title: "Take a look around", text: "Walk through the show flat in 3D.", url: "", ratio: "wide" })),
+    ...pick("waitlist", b.waitlist),
+    ...pick("shops", sec("Shops")),
+    ...pick("hours", sec("Hours")),
+    ...pick("booking", sec("Booking")),
+    ...pick("viewing", b.viewing),
+    ...pick("gallery", b.gallery),
+    ...pick("blog", sec("Blog", { ...(property ? {} : { title: brief.kind === "blog" ? "Latest posts" : "News & events" }), ...(c.posts ? { posts: c.posts } : {}) })),
+    ...pick("reviews", sec("Testimonials")),
+    ...pick("location", b.location),
+    ...pick("faq", block("Faq", c.faq ? { items: c.faq } : {})),
+    ...pick("downloads", block("Downloads", { title: "Downloads" })),
+    ...pick("newsletter", sec("Newsletter", { text: c.newsletterText })),
+    ...pick("contact", b.contact),
+    ...pick("team", b.contacts),
+    b.footer,
+  ];
+  // menu: the main sections that made it onto the page, at most five
+  b.header.props.links = order.map((x) => ANCHOR[x.type]).filter(Boolean).slice(0, 5).map(([label, href]) => ({ label, href }));
+  if (!F.has("contact")) { b.header.props.cta = ""; }
+  const root: Record<string, unknown> = { template: b.tpl.id, navVariant: b.tpl.nav };
+  if (property && p.units.length) root.disturber = { enabled: true, text: "Move in from spring", href: "#units", position: "hero", shape: "round" };
+  if (F.has("floorplans")) root.unitDetail = "page";
+  if (F.has("popup")) root.modal = { enabled: true, title: `Welcome to ${p.name}`, text: brief.description || "Register now and be the first to hear the news.", image: "", cta: "", ctaHref: "", form: F.has("newsletter") || !property ? "contact" : "waitlist", once: true };
+  return { root: { props: root }, content: order, zones: {} } as Data;
+}
+const KIND_EYEBROW: Record<string, string> = { residential: "", commercial: "Offices & commercial space", "shopping-centre": "Shopping centre", booking: "Book online", blog: "Blog", other: "" };
+
+export function buildPage(p: Base, template: TemplateId, brief?: Brief): Data {
+  if (brief) return fromBrief(p, template, brief);
   const b = starter(p, template);
   // running order: hero, advantages, property, offer, gallery, location, contact
   const order = [b.header, b.hero, b.advantages, b.textImage, b.factsBlock, b.finder, b.waitlist, b.gallery, b.location, b.viewing, b.contact, b.contacts, b.footer];

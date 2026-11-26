@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Isometry } from "@/lib/isometry";
+import { isoMarkup, type Isometry } from "@/lib/isometry";
 import { STATUS_COLOR, STATUS_LABEL, type Unit } from "@/lib/types";
 
 interface ViewProps {
@@ -17,7 +17,8 @@ interface ViewProps {
 /** the uploaded isometric drawing on the public site: every mapped shape is an apartment you can hover and click */
 export function IsometryView({ iso, units, accent = "#1F5C4A", active, hover, selected, onHover, onSelect }: ViewProps) {
   const host = useRef<HTMLDivElement>(null);
-  const html = useMemo(() => ({ __html: iso.svg }), [iso.svg]);
+  const markup = isoMarkup(iso);
+  const html = useMemo(() => ({ __html: markup }), [markup]);
   const byId = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
 
   // geometry of every drawn element, measured once per drawing (before any transform is applied)
@@ -28,7 +29,7 @@ export function IsometryView({ iso, units, accent = "#1F5C4A", active, hover, se
     boxes.current = [...el.querySelectorAll<SVGGraphicsElement>("polygon, path, rect, line, polyline, circle, ellipse, text")]
       .filter((e) => !e.closest("defs, clipPath, mask, pattern, symbol"))
       .map((e) => { e.style.transform = ""; const b = e.getBBox(); return { el: e, x0: b.x, x1: b.x + b.width, y0: b.y, y1: b.y + b.height, shape: (e as unknown as SVGElement).dataset.shape }; });
-  }, [iso.svg]);
+  }, [markup]);
 
   useEffect(() => {
     const el = host.current;
@@ -94,7 +95,8 @@ export function IsometryView({ iso, units, accent = "#1F5C4A", active, hover, se
 export function IsometryMapper({ iso, units, onChange, accent = "#1F5C4A" }: { iso: Isometry; units: Unit[]; onChange: (iso: Isometry) => void; accent?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [shape, setShape] = useState<string | null>(null);
-  const html = useMemo(() => ({ __html: iso.svg }), [iso.svg]);
+  const markup = isoMarkup(iso);
+  const html = useMemo(() => ({ __html: markup }), [markup]);
   const used = useMemo(() => new Map(Object.entries(iso.map).map(([s, u]) => [u, s])), [iso.map]);
   const mapped = Object.keys(iso.map).filter((s) => units.some((u) => u.id === iso.map[s])).length;
 

@@ -1,5 +1,7 @@
 import type { Data } from "@puckeditor/core";
 import type { Isometry } from "./isometry";
+import type { SeoMeta, SiteKind, ThemeTokens } from "@/doc/schema";
+import type { Brief } from "./profile";
 
 export type UnitStatus = "available" | "reserved" | "sold" | "rented";
 export type TemplateId = "atelier" | "kontrast" | "lumen" | "t1" | "t2" | "t3" | "t4" | "t5" | "calm" | "bold" | "compact";
@@ -122,14 +124,19 @@ export interface ViewingSlot {
 
 export interface Booking {
   id: string;
+  /** a viewing slot, or "resource:<name>@<ISO start>" for the booking system */
   slotId: string;
+  /** booking system: what was booked and when */
+  resource?: string;
+  start?: string;
+  durationMin?: number;
   at: number;
   name: string;
   email: string;
 }
 
 /** a further page of the site (the home page stays in Project.draft / published); the menu bar and footer come from the home page */
-export interface SitePage { id: string; slug: string; title: string; draft: Data; published: Data | null }
+export interface SitePage { id: string; slug: string; title: string; draft: Data; published: Data | null; seo?: SeoMeta }
 
 export interface Project {
   id: string;
@@ -144,7 +151,17 @@ export interface Project {
   /** what the building offers; drives the tabs on the site */
   uses?: UnitUse[];
   locale: string;
+  /** primary brand colour; the rest of the theme is in `theme` */
   accent: string;
+  /** document format version, see src/doc/migrate.ts */
+  docVersion?: number;
+  kind?: SiteKind;
+  /** design tokens on top of the template (missing = template default) */
+  theme?: ThemeTokens;
+  /** search engine and share settings of the home page; further pages carry their own */
+  seo?: SeoMeta;
+  /** the answers from the new-site interview: what the site is for and which features it needs */
+  brief?: Brief;
   template: TemplateId;
   logo?: string;
   /** unit feed configured in the wizard (credentials are not kept in this preview) */
