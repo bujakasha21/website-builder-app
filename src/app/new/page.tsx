@@ -67,7 +67,7 @@ export default function NewSite() {
   const finishProfile = async (skipped = false) => {
     const role = prTouched.role ? pr.role : p?.role ?? pr.role;
     const experience = prTouched.experience ? pr.experience : p?.experience ?? pr.experience;
-    await saveProfile({ role, roleOther: pr.roleOther ?? p?.roleOther, experience, company: pr.company ?? p?.company, purposes: purposes.length ? purposes : ["residential"], skipped: skipped || undefined, at: Date.now() });
+    await saveProfile({ role, roleOther: pr.roleOther ?? p?.roleOther, experience, company: pr.company ?? p?.company, purposes: purposes.length ? purposes : ["residential"], skipped: skipped || undefined, at: stamp() });
     if (onlyProfile) router.push("/");
   };
   const next = async () => {
