@@ -151,6 +151,7 @@ function HeaderActions({ children }: { children: React.ReactNode }) {
   const c = useContext(EditorCtx)!;
   return (
     <>
+      <Link className="btn btn-sm editor-home" style={{ height: 34, width: 34, padding: 0, justifyContent: "center" }} href="/" onClick={c.flush} title="Back to the home page" aria-label="Home"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" /></svg></Link>
       {flag("history") ? <UndoRedo projectId={c.id} before={c.flush} after={c.reload} /> : null}
       <PagesMenu />
       <VersionGallery projectId={c.id} />
@@ -161,7 +162,7 @@ function HeaderActions({ children }: { children: React.ReactNode }) {
           {c.langs.map((l) => <button key={l} aria-pressed={l === c.cur} onClick={() => c.switchLang(l)}>{LANG_NAME[l] ?? l}</button>)}
         </div>
       ) : null}
-      <Link className="btn btn-sm" style={{ height: 34 }} href={`/p/${c.id}`}>Dashboard</Link>
+      <Link className="btn btn-sm" style={{ height: 34 }} href={`/p/${c.id}`} onClick={c.flush}>Project</Link>
       <a className="btn btn-sm" style={{ height: 34 }} href={`/site/${c.id}${c.page ? `/${c.page.slug}` : ""}?${c.qs}`} target="_blank">Preview</a>
       <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.settings} onClick={() => { c.setSettings(!c.settings); c.setHistory(false); }}>Site settings</button>
       {flag("history") ? <button className="btn btn-sm" style={{ height: 34 }} aria-expanded={c.history} onClick={() => { c.setHistory(!c.history); c.setSettings(false); }}>History</button> : null}

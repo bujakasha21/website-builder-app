@@ -5,13 +5,14 @@ import { config } from "@/editor/config";
 
 export function TopBar({ children }: { children?: React.ReactNode }) {
   return (
-    <header className="h-14 border-b border-line bg-surface flex items-center px-6 gap-6 shrink-0">
+    // stays at the top of every builder page, so the way home is always one click away
+    <header className="app-topbar h-14 border-b border-line bg-surface flex items-center px-6 gap-6 shrink-0">
       <Link href="/" className="flex items-center gap-3" aria-label="Streamnow Website Builder">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/streamnow.svg" alt="streamnow" style={{ height: 22 }} />
-        <span className="eyebrow" style={{ fontSize: 10 }}>Website Builder</span>
+        <span className="eyebrow app-topbar-tag" style={{ fontSize: 10 }}>Website Builder</span>
       </Link>
-<nav className="flex items-center gap-5 text-[14px]" aria-label="Main"><Link href="/" className="text-muted hover:text-ink transition-colors">Dashboard</Link><Link href="/studio" className="text-muted hover:text-ink transition-colors">Floor plans</Link><Link href="/brochures" className="text-muted hover:text-ink transition-colors">Brochures</Link></nav>
+<nav className="app-topnav flex items-center gap-5 text-[14px]" aria-label="Main"><Link href="/" className="text-muted hover:text-ink transition-colors">Home</Link><Link href="/websites" className="text-muted hover:text-ink transition-colors">Websites</Link><Link href="/studio" className="text-muted hover:text-ink transition-colors">Floor plans</Link><Link href="/brochures" className="text-muted hover:text-ink transition-colors">Brochures</Link></nav>
       <div className="flex-1 flex items-center gap-4">{children}</div>
       <span className="text-muted text-xs">EN</span>
       <span className="w-7 h-7 flex items-center justify-center text-xs font-semibold" style={{ borderRadius: "50%", background: "var(--accent)", color: "var(--accent-ink)" }} title="Demo account">DB</span>

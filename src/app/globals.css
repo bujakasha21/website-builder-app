@@ -2004,3 +2004,18 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 .ob-seg { height: 40px; width: max-content; }
 @media (max-width: 760px) { .ob-row { grid-template-columns: 1fr; } }
 /* phase 2 fixes */
+
+/* ── the builder's top bar stays put; home is always one click away ── */
+.app-topbar { position: sticky; top: 0; z-index: 60; }
+.editor-home { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+@media (max-width: 760px) {
+  .app-topbar { padding: 0 16px; gap: 14px; }
+  .app-topbar-tag { display: none; }
+  .app-topnav { gap: 14px; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1; }
+  .app-topnav a { white-space: nowrap; }
+}
+/* a long site name gives way to the toolbar instead of being covered */
+[class*="_PuckHeader-title"] { min-width: 0; overflow: hidden; }
+[class*="_PuckHeader-title"] * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[class*="_PuckHeader-inner"] { grid-template-columns: auto minmax(0, 1fr) auto !important; }
+/* end of navbar styles */
