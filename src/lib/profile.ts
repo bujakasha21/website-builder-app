@@ -32,6 +32,10 @@ export interface Brief {
   /** colours read from the logo in code (src/lib/logo.ts), and the one picked as the main colour */
   palette?: string[];
   accent?: string;
+  /** texts written for this site (by Claude, or by rules); the page generator uses them instead of writing its own */
+  copy?: import("./copy").Copy;
+  /** who wrote `copy`, e.g. "claude-opus-5-5" or "rules" */
+  copyBy?: string;
   start?: StartMode;
 }
 

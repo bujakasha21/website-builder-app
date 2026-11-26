@@ -153,7 +153,7 @@ function fromBrief(p: Base, template: TemplateId, brief: Brief): Data {
   const F = new Set<FeatureId>(brief.features);
   const property = brief.kind === "residential" || brief.kind === "commercial";
   // Pascal's texts from the interview (src/lib/copy.ts): the owner's own description first, neutral starters otherwise
-  const c = writeCopy(brief, { city: p.city, address: p.address });
+  const c = brief.copy ?? writeCopy(brief, { city: p.city, address: p.address });
   if (!property || !p.units.length) {
     b.hero.props.text = c.heroText;
     b.hero.props.eyebrow = [p.city, KIND_EYEBROW[brief.kind]].filter(Boolean).join(" · ");

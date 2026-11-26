@@ -17,6 +17,7 @@ import { clearBriefDraft, readBriefDraft } from "@/lib/brief";
 import { needsUnits, VIBES, type Brief } from "@/lib/profile";
 import { brandFromBrief } from "@/lib/brand";
 import { writeCopy } from "@/lib/copy";
+import { claudeAvailable, claudeCopy } from "@/lib/ai";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
 interface Line { text: string; items?: string[]; done?: boolean }
@@ -189,12 +190,23 @@ export default function AiBuilder() {
     const chosen = VIBES.find((v) => v.id === brief?.vibe)?.template;
     const tpl = TEMPLATES.find((t) => t.id === (chosen ?? suggest(STEPS[0], draftP, ownPhoto).value)) ?? TEMPLATES[0];
     const brand = brandFromBrief(brief, tpl.accent);
+    // Claude writes the texts when it is connected; otherwise Pascal's rules do, and the report says which
+    let wb = brief;
+    let textNote = "";
+    if (brief) {
+      if (await claudeAvailable()) {
+        await say({ text: "Asking Claude to write your texts from the description …" }, 200);
+        const r = await claudeCopy({ ...brief, name: core.name }, core.city);
+        if ("copy" in r) { wb = { ...brief, copy: r.copy, copyBy: r.model }; textNote = `Texts written by Claude (${r.model}) from your description – only facts you gave, nothing invented`; }
+        else { textNote = `Texts written by my rules – Claude could not help this time: ${r.error}`; }
+      } else textNote = "Texts written by my rules from your description – Claude is not connected yet (needs an API key)";
+    }
     const caps = CAPTIONS[brief?.kind ?? "residential"] ?? CAPTIONS.residential;
     const media = { heroImage: form.image || placeholder("exterior", brand.accent), gallery: (["interior", "kitchen", "garden", "detail"] as const).map((k, i) => ({ src: placeholder(k, brand.accent), caption: `${caps[i]} (placeholder)` })) };
     const built: Project = {
-      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: brief?.languages[0] ?? "en", locales: brief?.languages.slice(1), kind: brief?.kind, brief: brief ? { ...brief, name: core.name, start: "ai" } : undefined,
-      accent: brand.accent, logo: brand.logo, logoOnDark: brand.logoOnDark, theme: brand.theme, docVersion: 3, seo: brief ? writeCopy(brief, core).seo : undefined, template: tpl.id, isoMode: "3d",
-      draft: buildPage({ ...core, ...media }, tpl.id, brief), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
+      ...core, id, slug: id, lat: 47.3769, lng: 8.5417, locale: wb?.languages[0] ?? "en", locales: wb?.languages.slice(1), kind: wb?.kind, brief: wb ? { ...wb, name: core.name, start: "ai" } : undefined,
+      accent: brand.accent, logo: brand.logo, logoOnDark: brand.logoOnDark, theme: brand.theme, docVersion: 3, seo: wb ? (wb.copy ?? writeCopy(wb, core)).seo : undefined, template: tpl.id, isoMode: "3d",
+      draft: buildPage({ ...core, ...media }, tpl.id, wb), published: null, leads: [], slots: [], bookings: [], views: 0, createdAt: Date.now(),
     };
     // with the interview Pascal decides every section version himself; the owner can still go through them afterwards
     const picks = brief ? stepsOf(built).filter((x) => x.key !== "template").map((x) => ({ st: x, ...suggest(x, built, ownPhoto) })) : [];
@@ -223,7 +235,7 @@ export default function AiBuilder() {
       const blocks = saved.draft.content as Block[];
       done.push(`${blocks.length - 2} sections from your list: ${blocks.filter((c) => c.type !== "Header" && c.type !== "Footer").map((c) => SECTION_NAME[c.type] ?? c.type).join(", ")}`);
       for (const k of picks) { const b0 = blocks.find((c) => c.type === k.st.key); if (b0 && b0.props[k.st.field!] === k.value) done.push(`${k.st.title}: “${k.st.variants?.find((v) => v.value === k.value)?.label}” – ${k.why}`); }
-      done.push(brief.description ? "Texts written from your description" : "Starter texts for every section (no description given)");
+      done.push(textNote || (brief.description ? "Texts written from your description" : "Starter texts for every section (no description given)"));
       if (saved.seo?.title) done.push(`Search title “${saved.seo.title}”`);
       if (!ownPhoto) done.push("Pictures: drawn placeholders in your colour until you upload photos");
     }

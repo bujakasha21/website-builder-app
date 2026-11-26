@@ -1,4 +1,5 @@
 import type { Brief } from "./profile";
+import type { AiCopy } from "./copy-schema";
 
 /**
  * Pascal's first texts, written from the interview: the owner's own description, the kind of site, rent or sale,
@@ -163,5 +164,21 @@ export function writeCopy(b: Brief, place: { city?: string; address?: string }):
       title: clip([name, kindWord[b.kind]].filter(Boolean).join(" – ") + (city && b.kind !== "blog" ? ` ${city}` : ""), 60),
       description: clip(desc || `${base.hero} ${base.contact}`, 155),
     },
+  };
+}
+
+/** Claude's answer in the shape the page generator uses; empty lists mean "not on this site" */
+export function fromAi(a: AiCopy): Copy {
+  return {
+    heroText: a.heroText,
+    aboutTitle: a.aboutTitle,
+    aboutText: a.aboutText,
+    advantagesTitle: a.advantagesTitle,
+    advantages: a.advantages,
+    contactText: a.contactText,
+    newsletterText: a.newsletterText,
+    posts: a.posts.length ? a.posts.map((x) => ({ ...x, date: "", image: "" })) : undefined,
+    faq: a.faq.length ? a.faq : undefined,
+    seo: { title: clip(a.seo.title, 60), description: clip(a.seo.description, 155) },
   };
 }
