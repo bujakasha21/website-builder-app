@@ -4,14 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { pascal, STARTERS } from "@/editor/pascal/local";
 import { blocksOf, progress, suggestFor } from "@/editor/pascal/rules";
 import type { Issue, Proposal } from "@/editor/pascal/types";
-import { getProject, updateProject } from "@/lib/store";
+import { getProject } from "@/lib/store";
+import { commit, tagNextEdit } from "@/doc/commit";
+import { describeDataDiff } from "@/doc/diff";
 import type { Project } from "@/lib/types";
 
 interface Snapshot { data?: Data; accent?: string; locales?: string[] }
-interface Msg { id: number; from: "pascal" | "user"; text: string; proposal?: Proposal; state?: "open" | "done" | "declined" | "undone"; undo?: Snapshot }
+interface Msg { id: number; from: "pascal" | "user"; text: string; proposal?: Proposal; state?: "open" | "done" | "declined" | "undone" | "nochange" | "failed"; undo?: Snapshot; /** what really changed, read back after applying */ verified?: string[]; error?: string }
+interface Outcome { undo?: Snapshot; verified: string[]; error?: string; touched: boolean }
 
-const changesSomething = (p: Proposal) => !!(p.apply || p.patchProject);
-const needsConfirm = (p: Proposal) => !!(p.apply || p.patchProject || p.go || p.open);
+const changesSomething = (p: Proposal) => !!(p.apply || p.ops?.length);
+const needsConfirm = (p: Proposal) => !!(p.apply || p.ops?.length || p.go || p.open);
 
 /**
  * Pascal's chat bar, docked at the bottom of the editor and the dashboard.
@@ -43,19 +46,34 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
   const push = (m: Omit<Msg, "id">) => setMsgs((x) => [...x, { ...m, id: seq.current++ }]);
   const snapshot = (): Snapshot => { const p = project ? getProject(project.id) ?? project : undefined; return { data, accent: p?.accent, locales: p?.locales }; };
 
-  /** carries out a confirmed proposal; returns what is needed to undo it */
-  const run = (pr: Pick<Proposal, "apply" | "patchProject" | "go" | "open">): Snapshot | undefined => {
+  /**
+   * Carries out a confirmed proposal and reports what REALLY changed: the page is compared before and after,
+   * site-level operations report their own applied summary. A proposal that changes nothing says so.
+   */
+  const run = (pr: Pick<Proposal, "apply" | "ops" | "go" | "open" | "changes">): Outcome => {
     const before = snapshot();
-    if (pr.apply && data && onData) onData(pr.apply(data));
-    if (pr.patchProject && project) updateProject(project.id, pr.patchProject);
+    const verified: string[] = [];
+    const label = pr.changes?.[0];
+    if (pr.apply && data && onData && project) {
+      const after = pr.apply(data);
+      const diff = describeDataDiff(data, after);
+      if (diff.length) { tagNextEdit(project.id, { source: "ai", label: label ?? diff[0] }); onData(after); verified.push(...diff); }
+    }
+    if (pr.ops?.length && project) {
+      const r = commit(project.id, pr.ops, { source: "ai", label });
+      if (!r.ok) return { verified, error: r.error, touched: true };
+      verified.push(...r.summary);
+    }
     if (pr.open === "settings") onOpenSettings?.();
     if (pr.go) { if (mode === "editor") window.open(pr.go, "_blank"); else window.location.assign(pr.go); }
-    return pr.apply || pr.patchProject ? before : undefined;
+    const touched = changesSomething(pr as Proposal);
+    return { undo: touched && verified.length ? before : undefined, verified, touched };
   };
   const restore = (s: Snapshot) => {
-    if (s.data && onData) onData(s.data);
-    if (project) updateProject(project.id, (x) => ({ ...x, accent: s.accent ?? x.accent, locales: s.locales }));
+    if (s.data && onData && data && describeDataDiff(data, s.data).length) { if (project) tagNextEdit(project.id, { source: "ai", label: "Undid Pascal's change" }); onData(s.data); }
+    if (project) commit(project.id, [{ op: "setThemeTokens", tokens: { primary: s.accent } }, { op: "setLocales", locales: s.locales ?? [] }].filter((o) => o.op !== "setThemeTokens" || s.accent), { source: "ai", label: "Undid Pascal's change" });
   };
+  const stateOf = (o: Outcome): Msg["state"] => (o.error ? "failed" : !o.touched ? undefined : o.verified.length ? "done" : "nochange");
   const undoLast = () => {
     const m = [...msgs].reverse().find((x) => x.state === "done" && x.undo);
     if (!m?.undo) return push({ from: "pascal", text: "There is nothing of mine to undo." });
@@ -77,19 +95,21 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
   };
   const decide = (m: Msg, ok: boolean) => {
     if (!m.proposal) return;
-    const undo = ok ? run(m.proposal) : undefined;
-    setMsgs((x) => x.map((y) => (y.id === m.id ? { ...y, state: ok ? "done" : "declined", undo } : y)));
+    if (!ok) return setMsgs((x) => x.map((y) => (y.id === m.id ? { ...y, state: "declined" } : y)));
+    const o = run(m.proposal);
+    setMsgs((x) => x.map((y) => (y.id === m.id ? { ...y, state: stateOf(o) ?? "done", undo: o.undo, verified: o.verified, error: o.error } : y)));
   };
   const fixIssue = (i: Issue) => {
     if (!i.fix) return;
-    const undo = run(i.fix);
-    push({ from: "pascal", text: i.fix.apply ? `Done: ${i.fixLabel?.toLowerCase() ?? i.title}.` : `Opening that for you: ${i.title.toLowerCase()}.`, proposal: { reply: "", ...i.fix }, state: undo ? "done" : undefined, undo });
+    const o = run(i.fix);
+    const st = stateOf(o);
+    push({ from: "pascal", text: st === "done" ? `Done: ${i.fixLabel?.toLowerCase() ?? i.title}.` : st ? "" : `Opening that for you: ${i.title.toLowerCase()}.`, proposal: { reply: "", ...i.fix }, state: st, undo: o.undo, verified: o.verified, error: o.error });
   };
   const takeHint = () => {
     if (!hint) return;
-    const undo = run(hint);
+    const o = run(hint);
     setTalk(true);
-    push({ from: "pascal", text: `Done. ${hint.changes?.[0] ?? ""}`, proposal: hint, state: "done", undo });
+    push({ from: "pascal", text: stateOf(o) === "done" ? "Done." : "", proposal: hint, state: stateOf(o), undo: o.undo, verified: o.verified, error: o.error });
   };
 
   if (!open)
@@ -143,8 +163,13 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
           <div className="pascal-msgs">
             {msgs.map((m) => (
               <div key={m.id} className={`pascal-msg from-${m.from} rise`}>
-                {m.text ? <p>{m.text}</p> : null}
-                {m.proposal?.changes?.length && m.from === "pascal" && m.state !== undefined && m.proposal.reply ? <ul className="pascal-changes">{m.proposal.changes.map((c, k) => <li key={k}>{c}</li>)}</ul> : null}
+                {/* the reply was written before applying; when nothing (or something else) happened it must not stand as a claim */}
+                {m.text && m.state !== "nochange" && m.state !== "failed" ? <p>{m.text}</p> : null}
+                {/* before confirming: the plan; after: only what was read back as changed */}
+                {m.state === "open" && m.proposal?.changes?.length ? <ul className="pascal-changes">{m.proposal.changes.map((c, k) => <li key={k}>{c}</li>)}</ul> : null}
+                {m.state === "done" && m.verified?.length ? <div className="pascal-verified"><b>Changes</b><ul className="pascal-changes">{m.verified.map((c, k) => <li key={k}>{c}</li>)}</ul></div> : null}
+                {m.state === "nochange" ? <p className="pascal-warn">Nothing changed: the page already looked like that, so there was nothing to apply.</p> : null}
+                {m.state === "failed" ? <p className="pascal-warn">That did not work and nothing was changed: {m.error}</p> : null}
                 {m.proposal?.issues ? (
                   <ul className="pascal-issues">
                     {m.proposal.issues.map((i) => (

@@ -9,13 +9,14 @@ export interface PascalContext { project?: Project; data?: Data; selectedId?: st
 /** something missing or weak on a site, found by "Check my site" */
 export interface Issue { id: string; title: string; why: string; fixLabel?: string; fix?: Omit<Proposal, "reply"> }
 
-/** Pascal's answer. Nothing is changed until the user confirms `apply`, `patchProject`, `go` or `open`. */
+/** Pascal's answer. Nothing is changed until the user confirms `apply`, `ops`, `go` or `open`. */
 export interface Proposal {
   reply: string;
   /** plain-language list of what will change, shown before the user confirms */
   changes?: string[];
   apply?: (data: Data) => Data;
-  patchProject?: (p: Project) => Project;
+  /** site-level changes as command-layer operations (src/doc/ops.ts), e.g. theme or languages */
+  ops?: unknown[];
   /** a page to open */
   go?: string;
   open?: "settings";

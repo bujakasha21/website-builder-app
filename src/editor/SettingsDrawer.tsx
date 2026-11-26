@@ -9,6 +9,8 @@ import type { Project } from "@/lib/types";
 import { fileToDataUrl } from "./blocks";
 import { starterLegal } from "./extras";
 import { withDefaults, type SiteSettings } from "./settings";
+import ThemeSection from "./ThemeSection";
+import { flag } from "@/lib/flags";
 
 export function Tip({ text }: { text: string }) {
   return <span className="tip" tabIndex={0} aria-label={text} data-tip={text}>i</span>;
@@ -69,16 +71,18 @@ export default function SettingsDrawer({ project, onClose }: { project: Project;
             <Row label="Template" tip="Overall look. Switching keeps all content.">
               <select className="select" value={s.template} onChange={(e) => set({ template: e.target.value as SiteSettings["template"] })}>{templatesFor(s.template).map((t) => <option key={t.id} value={t.id}>{t.name} – {t.note}</option>)}</select>
             </Row>
+            {flag("theme") ? <ThemeSection project={project} template={s.template} legacy={{ fontFamily: s.fontFamily, textScale: s.textScale }} /> : (
             <Row label="Text size" tip="Makes all text on the site a little smaller or larger. Headings and running text keep their proportions.">
               <Seg value={s.textScale} onChange={(v) => set({ textScale: v })} options={[["s", "Small"], ["m", "Normal"], ["l", "Large"]]} />
             </Row>
+            )}
             <details className="st-adv"><summary>Advanced settings</summary>
-            <Row label="Font family">
+            {flag("theme") ? null : <Row label="Font family">
               <select className="select" value={s.fontFamily} onChange={(e) => set({ fontFamily: e.target.value })}>
                 <option value="template">From the template</option>
                 {Object.entries(FONTS).map(([k, f]) => <option key={k} value={k}>{f.label}</option>)}
               </select>
-            </Row>
+            </Row>}
             <Row label="Scroll animations" tip="Sections fade and rise into place as the visitor scrolls. Shown on the site, not while editing.">
               <Toggle on={s.animations} onChange={(v) => set({ animations: v })} label="Scroll animations" />
             </Row>

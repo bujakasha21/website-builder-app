@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FONTS } from "@/lib/fonts";
 import { uid, updateProject, useProject } from "@/lib/store";
 import { previewHref } from "@/lib/sitedata";
-import { templateOf } from "@/lib/templates";
+import { resolveTheme, themeVars } from "@/doc/theme";
 import { CookieNotice, legalHref } from "./extras";
 import { SiteContext, withDefaults, type SiteSettings } from "./settings";
 
@@ -65,7 +65,9 @@ export default function SiteRoot({ children, puck, ...props }: any) {
   const editing = !!puck?.isEditing;
   const ref = useRef<HTMLDivElement>(null);
   const animate = settings.animations && !editing;
-  const tpl = templateOf(settings.template);
+  // theme tokens: template defaults + the owner's overrides (src/doc/theme.ts); the template preview (?tpl=) passes its own accent
+  const resolved = resolveTheme(settings.template, meta.accent ?? p?.accent ?? "#1F5C4A", p?.theme, { fontFamily: settings.fontFamily, textScale: settings.textScale });
+  const theme = themeVars(p?.theme, resolved);
 
   useEffect(() => {
     const el = ref.current;
@@ -95,7 +97,8 @@ export default function SiteRoot({ children, puck, ...props }: any) {
       <div
         ref={ref}
         className={`site t-${settings.template} nav-${settings.navVariant} ${settings.dividers ? "lines" : ""} ${animate ? "anim" : ""}`}
-        style={{ ["--accent" as any]: meta.accent ?? p?.accent ?? "#1F5C4A", fontFamily: (FONTS[settings.fontFamily] ?? FONTS[tpl?.body ?? "geist"] ?? FONTS.geist).family, ["--f-head" as any]: (FONTS[settings.fontFamily] ?? FONTS[tpl?.head ?? "geist"] ?? FONTS.geist).family, ["--t-k" as any]: settings.textScale === "s" ? 0.92 : settings.textScale === "l" ? 1.1 : 1 }}
+        {...theme.attrs}
+        style={{ ...theme.style, ["--accent" as any]: resolved.colors.primary, fontFamily: (FONTS[resolved.fonts.body] ?? FONTS.geist).family, ["--f-head" as any]: (FONTS[resolved.fonts.heading] ?? FONTS.geist).family, ["--t-k" as any]: resolved.typeScale === "s" ? 0.92 : resolved.typeScale === "l" ? 1.1 : 1 }}
       >
         {children}
         {d.enabled && d.position === "corner" && !meta.partial ? <a className={`disturber corner ${d.shape}`} href={d.href}><span>{d.text}</span></a> : null}

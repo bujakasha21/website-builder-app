@@ -1,5 +1,6 @@
 import type { Data } from "@puckeditor/core";
 import type { Isometry } from "./isometry";
+import type { SeoMeta, SiteKind, ThemeTokens } from "@/doc/schema";
 
 export type UnitStatus = "available" | "reserved" | "sold" | "rented";
 export type TemplateId = "atelier" | "kontrast" | "lumen" | "t1" | "t2" | "t3" | "t4" | "t5" | "calm" | "bold" | "compact";
@@ -129,7 +130,7 @@ export interface Booking {
 }
 
 /** a further page of the site (the home page stays in Project.draft / published); the menu bar and footer come from the home page */
-export interface SitePage { id: string; slug: string; title: string; draft: Data; published: Data | null }
+export interface SitePage { id: string; slug: string; title: string; draft: Data; published: Data | null; seo?: SeoMeta }
 
 export interface Project {
   id: string;
@@ -144,7 +145,15 @@ export interface Project {
   /** what the building offers; drives the tabs on the site */
   uses?: UnitUse[];
   locale: string;
+  /** primary brand colour; the rest of the theme is in `theme` */
   accent: string;
+  /** document format version, see src/doc/migrate.ts */
+  docVersion?: number;
+  kind?: SiteKind;
+  /** design tokens on top of the template (missing = template default) */
+  theme?: ThemeTokens;
+  /** search engine and share settings of the home page; further pages carry their own */
+  seo?: SeoMeta;
   template: TemplateId;
   logo?: string;
   /** unit feed configured in the wizard (credentials are not kept in this preview) */

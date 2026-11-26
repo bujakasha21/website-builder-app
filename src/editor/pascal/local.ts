@@ -123,7 +123,7 @@ export const localProvider: PascalProvider = {
     const colour = Object.keys(COLOURS).find((c) => new RegExp(`\\b${c}\\b`).test(t));
     if (hex || (colour && /make|colou?r|accent|use|change|turn/.test(t))) {
       const value = hex ?? COLOURS[colour!];
-      return { reply: `${cap(colour ?? value)} it is. Buttons, links and highlights will use it.`, changes: [`Accent colour: ${value}`], patchProject: (x) => ({ ...x, accent: value }) };
+      return { reply: `${cap(colour ?? value)} it is. Buttons, links and highlights will use it.`, changes: [`Accent colour: ${value}`], ops: [{ op: "setThemeTokens", tokens: { primary: value } }] };
     }
     if (/colou?r/.test(t)) return cannot("I did not catch which colour.", ["Make it blue", "Make it green", "Make it #1F4E8C"]);
 
@@ -173,7 +173,7 @@ export const localProvider: PascalProvider = {
       const key = Object.keys(LANGS).find((k) => t.includes(k));
       const [code, name] = key ? LANGS[key] : ["de-CH", "German"];
       if (code === p.locale || (p.locales ?? []).includes(code)) return { reply: `I cannot translate texts yet. ${name} already exists as a language: switch to it in the top bar and translate there.` };
-      return { reply: `I cannot translate texts yet. The nearest thing: I add ${name} as a language with a copy of this page, and you translate it in the editor.`, changes: [`Add ${name} as a site language`], patchProject: (x) => ({ ...x, locales: [...(x.locales ?? []), code] }), confirmLabel: `Add ${name}` };
+      return { reply: `I cannot translate texts yet. The nearest thing: I add ${name} as a language with a copy of this page, and you translate it in the editor.`, changes: [`Add ${name} as a site language`], ops: [{ op: "setLocales", locales: [...(p.locales ?? []), code] }], confirmLabel: `Add ${name}` };
     }
 
     // ── remove ──
