@@ -2134,3 +2134,90 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 /* full preview */
 /* . */
 .pg-legal a.pg-act { display: inline-grid; place-items: center; text-decoration: none; color: var(--muted); }
+
+/* ── phones: builder app (dashboard area, top bar, pages) ── */
+.home-mtop, .home-scrim { display: none; }
+@media (max-width: 860px) {
+  .home-shell { flex-direction: column; }
+  .home-mtop { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 40; height: 56px; padding: 0 16px; background: var(--surface); box-shadow: 0 1px 0 var(--line); }
+  .home-mtop > a:first-child { margin-right: auto; display: inline-flex; }
+  .home-burger { width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--sunken, #eeece6); display: grid; place-content: center; gap: 4px; cursor: pointer; }
+  .home-burger i { display: block; width: 18px; height: 2px; border-radius: 2px; background: var(--ink, #1c1b19); }
+  .home-scrim { display: block; position: fixed; inset: 0; z-index: 70; border: 0; background: rgba(20, 20, 18, 0.35); }
+  .home-side { position: fixed !important; left: 0; top: 0; z-index: 80; height: 100dvh !important; width: min(300px, 84vw) !important; transform: translateX(-105%); transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1); view-transition-name: none !important; }
+  .home-side.open { transform: none; }
+  .home-main { padding: 20px 16px 120px !important; }
+  .home-main h1 { font-size: clamp(28px, 8vw, 40px) !important; }
+  .dash-line { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-hello { padding-bottom: 18px; }
+}
+/* phones */
+/* . */
+@media screen and (max-width: 860px) {
+  /* brochure: the A4 sheets are shown scaled to the phone; printing is unaffected */
+  .brochure { padding: 112px 0 32px; gap: 14px; }
+  .sheet { zoom: 0.5; }
+  .b-bar { height: auto; min-height: 56px; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .b-bar > span[style] { display: none; }
+}
+@media screen and (max-width: 480px) { .sheet { zoom: 0.44; } }
+@media (max-width: 760px) {
+  /* step-by-step wizard footer */
+  .wz-foot { flex-wrap: wrap; }
+  .wz-foot .ml-auto { margin-left: 0; }
+}
+/* . */
+@media (max-width: 760px) {
+  /* editor on a phone: Pascal sits above Puck's bottom bar; the desktop/mobile switch is pointless here */
+  .pascalbox.editor, .pascal-dock.editor { bottom: 76px; }
+  .view-switch { display: none !important; }
+  .st-tabs button { flex: none; white-space: nowrap; }
+  .st-drawer { max-height: calc(100dvh - 160px); }
+  .hist-list li { grid-template-columns: auto 1fr auto; }
+  .hist-list li .hist-at { display: none; }
+}
+/* editor phone */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+@media (max-width: 760px) {
+  /* top bar on a phone: logo, Home, where you are */
+  .app-topbar { gap: 10px; padding: 0 12px; }
+  .app-topbar img { height: 18px !important; }
+  .app-topnav { flex: none; overflow: visible; }
+  .app-topnav a:not(:first-child), .app-topbar-lang { display: none; }
+  .app-topbar > div.flex-1 { min-width: 0; overflow: hidden; white-space: nowrap; }
+  .p-main { padding: 20px 16px 96px; }
+  .p-tabs { overflow-x: auto; scrollbar-width: none; gap: 18px; }
+  .p-tabs a { flex: none; white-space: nowrap; }
+}
+/* . */
+/* . */
+@media (max-width: 760px) {
+  /* public site: every template stacks the building above the apartment list on a phone (older templates forced two columns) */
+  .site:not(#_) .finder { grid-template-columns: 1fr; gap: 24px; }
+  .site:not(#_) .finder-model { height: 300px; }
+}
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+/* . */
+@media (max-width: 760px) {
+  /* owner bar on the site preview: fits a phone; the desktop/mobile switch is pointless on one */
+  .owner-bar { left: 8px; right: 8px; width: auto; bottom: 8px; overflow-x: auto; scrollbar-width: none; }
+  .owner-bar .owner-view { display: none; }
+  .owner-bar .owner-state { padding-left: 8px; padding-right: 8px; }
+  .owner-bar a { padding: 7px 9px; }
+}
+/* . */
+/* . */

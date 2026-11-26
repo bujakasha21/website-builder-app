@@ -368,7 +368,7 @@ export default function Wizard() {
             </Step>
           )}
 
-          <div className="flex gap-3 mt-10 pt-6 border-t border-line">
+          <div className="flex gap-3 mt-10 pt-6 border-t border-line wz-foot">
             {at > 0 ? <button className="btn" onClick={() => go(-1)}>Back</button> : null}
             {at < flow.length - 1 ? (
               <>

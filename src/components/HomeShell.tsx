@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useState } from "react";
 import { useProfile } from "@/lib/store";
 import { EXPERIENCE, ROLES } from "@/lib/profile";
 import { ViewTransition } from "react";
@@ -21,11 +22,24 @@ export const USER = { name: "Davor", initials: "DB" };
 export default function HomeShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const profile = useProfile();
+  // phones: the sidebar is a drawer behind the ☰ button; it closes on every page change
+  const [menu, setMenu] = useState(false);
+  const [lastPath, setLastPath] = useState(path);
+  if (path !== lastPath) { setLastPath(path); setMenu(false); }
   return (
     <ViewTransition enter="page-in" exit="page-out" default="none">
     <div className="flex-1 flex min-h-screen home-shell">
       <Playground />
-      <aside className="w-[232px] shrink-0 bg-surface flex flex-col sticky top-0 h-screen home-side">
+      <header className="home-mtop">
+        <Link href="/" aria-label="Streamnow Website Builder">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/streamnow.svg" alt="streamnow" style={{ height: 22 }} />
+        </Link>
+        <Link href="/new" className="btn btn-primary btn-sm">New website</Link>
+        <button type="button" className="home-burger" aria-label={menu ? "Close menu" : "Open menu"} aria-expanded={menu} onClick={() => setMenu(!menu)}><i /><i /><i /></button>
+      </header>
+      {menu ? <button type="button" className="home-scrim" aria-label="Close menu" onClick={() => setMenu(false)} /> : null}
+      <aside className={`w-[232px] shrink-0 bg-surface flex flex-col sticky top-0 h-screen home-side ${menu ? "open" : ""}`}>
         <Link href="/" className="h-16 flex items-center px-5 border-b border-line" aria-label="Streamnow Website Builder">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/streamnow.svg" alt="streamnow" style={{ height: 24 }} />

@@ -5,6 +5,7 @@ import "@puckeditor/core/puck.css";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loading, SitePreview } from "@/components/shell";
 import { config } from "@/editor/config";
 import SettingsDrawer, { Tip } from "@/editor/SettingsDrawer";
@@ -66,7 +67,9 @@ function ViewSwitch() {
 function PascalDock() {
   const c = useContext(EditorCtx)!;
   const { appState, dispatch, selectedItem } = usePuck();
-  return <PascalBar mode="editor" project={c.p} data={appState.data} selectedId={(selectedItem?.props.id as string | undefined) ?? null} onData={(d) => dispatch({ type: "setData", data: d })} onOpenSettings={() => c.setSettings(true)} />;
+  // rendered into <body>: on phones Puck folds the header (and everything in it) away, Pascal must stay reachable
+  const bar = <PascalBar mode="editor" project={c.p} data={appState.data} selectedId={(selectedItem?.props.id as string | undefined) ?? null} onData={(d) => dispatch({ type: "setData", data: d })} onOpenSettings={() => c.openSettings()} />;
+  return typeof document === "undefined" ? null : createPortal(bar, document.body);
 }
 
 type Link = { label: string; href: string };
