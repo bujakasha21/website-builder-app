@@ -2446,3 +2446,25 @@ button.pg-row, .pg-row > button:first-child { flex: 1; display: flex; align-item
 @media (max-width: 760px) and (max-height: 700px) { .bl-pop { scale: 0.54; } }
 /* . */
 /* . */
+
+/* ══ drop everything (src/components/DropAll.tsx), after the colleague's Studio ═══════════════ */
+.dropall { display: grid; gap: 12px; margin: 18px 0 22px; }
+.dropall-zone { display: grid; justify-items: center; gap: 6px; padding: 26px 20px; border: 1.5px dashed var(--line-strong); border-radius: 18px; background: var(--surface); text-align: center; cursor: pointer; transition: border-color 160ms, background 160ms, transform 200ms; }
+.dropall-zone b { font-size: 17px; }
+.dropall-zone small { color: var(--muted); font-size: 13px; max-width: 34em; }
+.dropall-zone .btn { margin-top: 6px; }
+.dropall-zone:hover, .dropall-zone.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.dropall-zone.over { transform: scale(1.01); }
+.dropall-zone.busy { opacity: 0.7; pointer-events: none; }
+.dropall-piles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dropall-pile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 13px; }
+.dropall-pile b { display: block; font-size: 13px; } .dropall-pile small { display: block; color: var(--muted); font-size: 11.5px; }
+.dropall-n { flex: none; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--sunken); font-weight: 650; }
+.dropall-pile.reading .dropall-n { background: var(--accent); color: var(--accent-ink, #fff); animation: voicePulse 1.1s ease-in-out infinite; }
+.dropall-pile.read .dropall-n { background: color-mix(in srgb, var(--accent) 25%, var(--surface)); }
+.dropall-report { display: grid; gap: 6px; margin: 0; padding: 12px 16px; border-radius: 14px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 14px; list-style: none; }
+.dropall-report li::before { content: "✓ "; color: var(--accent-strong, var(--accent)); font-weight: 700; }
+.dropall-report li.warn::before { content: "! "; color: #b3541e; }
+@media (max-width: 640px) { .dropall-piles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* . */
+/* . */
