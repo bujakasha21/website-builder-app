@@ -10,6 +10,7 @@ import { commit, tagNextEdit } from "@/doc/commit";
 import { describeDataDiff } from "@/doc/diff";
 import { config } from "@/editor/config";
 import type { Project } from "@/lib/types";
+import Voice from "./Voice";
 
 interface Snapshot { data?: Data; accent?: string; locales?: string[] }
 interface Msg { id: number; from: "pascal" | "user"; text: string; proposal?: Proposal; state?: "open" | "done" | "declined" | "undone" | "nochange" | "failed"; undo?: Snapshot; /** what really changed, read back after applying */ verified?: string[]; error?: string }
@@ -29,7 +30,7 @@ const needsConfirm = (p: Proposal) => !!(p.apply || p.ops?.length || p.go || p.o
  * It only talks to the PascalProvider interface, so a real model can replace the local rules without changes here.
  * Nothing is changed before the user confirms, and every change can be undone from the chat.
  */
-export default function PascalBar({ mode, project, data, selectedId, onData, onOpenSettings }: { mode: "editor" | "home"; project?: Project; data?: Data; selectedId?: string | null; onData?: (d: Data) => void; onOpenSettings?: () => void }) {
+export default function PascalBar({ mode, project, data, selectedId, onData, onOpenSettings, inline }: { mode: "editor" | "home"; project?: Project; data?: Data; selectedId?: string | null; onData?: (d: Data) => void; onOpenSettings?: () => void; /** part of the page (top of the dashboard) instead of floating in the corner */ inline?: boolean }) {
   // bottom-right corner: open on the dashboard, a small launcher in the editor so it never covers the fields
   const [open, setOpen] = useState(mode === "home");
   const [talk, setTalk] = useState(false);
@@ -37,6 +38,7 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [voiceLang, setVoiceLang] = useState("de-CH");
   const [skipped, setSkipped] = useState<string[]>([]);
   const seq = useRef(1);
   const end = useRef<HTMLDivElement>(null);
@@ -46,9 +48,10 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
   const [pascal, setPascal] = useState(rulesPascal);
   useEffect(() => { if (mode === "editor") claudeEditAvailable().then((ok) => { if (ok) setPascal(claudePascal); }); }, [mode]);
   const key = `sb-pascal-${mode}`;
-  useEffect(() => { try { const v = localStorage.getItem(key); if (v) setOpen(v === "open"); } catch {} }, [key]);
+  useEffect(() => { if (inline) return; try { const v = localStorage.getItem(key); if (v) setOpen(v === "open"); } catch {} }, [key, inline]);
   const toggle = (v: boolean) => { setOpen(v); try { localStorage.setItem(key, v ? "open" : "closed"); } catch {} };
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [msgs, talk]);
+  // the inline chat scrolls inside its own box; the floating one may bring its last line into view
+  useEffect(() => { const el = end.current; if (!el) return; if (inline) { const box = el.parentElement; if (box) box.scrollTop = box.scrollHeight; } else el.scrollIntoView({ block: "end" }); }, [msgs, talk, inline]);
 
   const prog = useMemo(() => (project && data ? progress(project, data) : null), [project, data]);
   const selected = data && selectedId ? blocksOf(data).find((c) => c.props.id === selectedId) : undefined;
@@ -123,7 +126,7 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
     push({ from: "pascal", text: stateOf(o) === "done" ? "Done." : "", proposal: hint, state: stateOf(o), undo: o.undo, verified: o.verified, error: o.error });
   };
 
-  if (!open)
+  if (!open && !inline)
     return (
       <div className={`pascal-dock ${mode}`}>
         {hint ? (
@@ -142,7 +145,7 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
 
   const starters = STARTERS[mode];
   return (
-    <div className={`pascalbox ${mode}`} role="region" aria-label="Pascal">
+    <div className={`pascalbox ${mode} ${inline ? "inline" : ""}`} role="region" aria-label="Pascal">
       {hint && !talk ? (
         <div className="pascal-hint rise">
           <span className="pascal-hint-text"><span className="pascal-tag">Suggestion</span>{hint.reply}</span>
@@ -206,18 +209,19 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
         </div>
       ) : null}
 
-      {!talk && !msgs.length ? <div className="pascal-chips start">{starters.map((e) => <button key={e} type="button" onClick={() => ask(e)}>{e}</button>)}</div> : null}
+      {(inline ? !talk : !talk && !msgs.length) ? <div className="pascal-chips start">{starters.map((e) => <button key={e} type="button" onClick={() => ask(e)}>{e}</button>)}</div> : null}
 
       <form className="pascal-bar" onSubmit={(e) => { e.preventDefault(); ask(input); }}>
         <span className="pascal-face" aria-hidden>P</span>
-        <input ref={field} value={input} onChange={(e) => setInput(e.target.value)} onFocus={() => msgs.length && setTalk(true)} placeholder={mode === "editor" ? "Ask Pascal: “add a gallery”, “make it blue” …" : "Ask Pascal: “new website” …"} aria-label="Message to Pascal" autoComplete="off" />
+        <input ref={field} value={input} onChange={(e) => setInput(e.target.value)} onFocus={() => msgs.length && setTalk(true)} placeholder={mode === "editor" ? "Ask Pascal: “add a gallery”, “make it blue” …" : inline ? "Describe your website, or ask me anything …" : "Ask Pascal: “new website” …"} aria-label="Message to Pascal" autoComplete="off" />
         {prog ? (
           <button type="button" className={`pascal-ring ${prog.percent === 100 ? "full" : ""}`} onClick={() => setList(!list)} aria-expanded={list} aria-label={`${prog.percent}% done, show the list`} style={{ ["--pct" as string]: prog.percent }}>
             <span>{prog.percent === 100 ? "✓" : `${prog.percent}%`}</span>
           </button>
         ) : null}
+        {inline ? <Voice compact lang={voiceLang} onLang={setVoiceLang} onText={(t) => setInput((x) => (x ? x.trimEnd() + " " : "") + t)} /> : null}
         <button type="submit" className="pascal-send" disabled={!input.trim() || busy} aria-label="Send">↑</button>
-        <button type="button" className="pascal-x" onClick={() => toggle(false)} aria-label="Minimise Pascal" title="Minimise">–</button>
+        {inline ? null : <button type="button" className="pascal-x" onClick={() => toggle(false)} aria-label="Minimise Pascal" title="Minimise">–</button>}
       </form>
     </div>
   );

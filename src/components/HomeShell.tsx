@@ -67,7 +67,8 @@ export default function HomeShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="flex-1 min-w-0 px-8 pt-10 pb-32 home-main"><div className="max-w-[1080px] mx-auto">{children}</div></main>
-      <PascalBar mode="home" />
+      {/* the dashboard has Pascal at the top of the page; the other pages keep him in the corner */}
+      {path === "/" ? null : <PascalBar mode="home" />}
     </div>
     </ViewTransition>
   );

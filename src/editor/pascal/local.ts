@@ -80,12 +80,15 @@ export const localProvider: PascalProvider = {
 
     // ── dashboard: no website open ──
     if (!p || !d) {
+      // a sentence that describes a site ("a website for 24 flats in Zürich, rental") starts one with that description
+      const describes = !/^(open|go to|show|take me)\b/.test(t) && (raw.split(/\s+/).length >= 4 || /\b(for|für|pour|per)\b|apartment|flat|wohnung|shopping|booking|blog|office/.test(t));
+      if (describes) return { reply: "Sounds good, let's build it. I take your words as the description, you add the name and pick what the site needs, then I build it.", go: `/new?about=${encodeURIComponent(raw.slice(0, 600))}`, confirmLabel: "Build it" };
       if (/new (web)?site|start|create/.test(t)) return { reply: "Let's start a new website.", go: "/new", confirmLabel: "Start" };
       if (/floor ?plan/.test(t)) return { reply: "Floor plans live here.", go: "/studio", confirmLabel: "Open" };
       if (/lead|enquir/.test(t)) return { reply: "Your enquiries are here.", go: "/leads", confirmLabel: "Open" };
       if (/brochure/.test(t)) return { reply: "Brochures are here.", go: "/brochures", confirmLabel: "Open" };
-      if (/website|site|project/.test(t)) return { reply: "All your websites are here.", go: "/websites", confirmLabel: "Open" };
-      return cannot("I can only change a website once it is open in the editor.", ["New website", "Open my websites", "Open floor plans"]);
+      if (/^(open )?(my )?(websites?|sites?|projects?)$/.test(t)) return { reply: "All your websites are here.", go: "/websites", confirmLabel: "Open" };
+      return cannot("Tell me what the website is for, for example “apartments for rent in Zürich”, and I build it with you.", ["New website", "Website for a shopping centre", "Open my websites"]);
     }
 
     const list = blocksOf(d);
@@ -283,4 +286,4 @@ export const localProvider: PascalProvider = {
 
 /** the provider in use; swap this for a hosted model later */
 export const pascal: PascalProvider = localProvider;
-export const STARTERS = { editor: ["Add a gallery", "Change the top section", "Make the button say Apply now", "Use template 3", "Make it blue", "Check my site"], home: ["New website", "Open my websites", "Open floor plans", "Open leads"] };
+export const STARTERS = { editor: ["Add a gallery", "Change the top section", "Make the button say Apply now", "Use template 3", "Make it blue", "Check my site"], home: ["Apartments for rent in Zürich", "A shopping centre website", "Meeting rooms to book online", "Open floor plans"] };
