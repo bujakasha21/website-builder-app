@@ -76,19 +76,19 @@ export const localProvider: PascalProvider = {
     const t = raw.toLowerCase().replace(/[.!?]+$/, "");
     const p = ctx.project, d = ctx.data;
     if (!t) return { reply: "Tell me what you would like to change.", examples: EXAMPLES.slice(0, 5) };
-    if (/^(hi|hello|hey|hallo|help|what can you do)\b/.test(t)) return { reply: `Hi, I'm Pascal. ${p ? HELP : "Open a website and I can change it for you. From here I can start a new one or take you where you need to go."}`, examples: p ? EXAMPLES.slice(0, 6) : ["New website", "Open floor plans", "Open leads"] };
+    if (/^(hi|hello|hey|hallo|help|what can you do)\b/.test(t)) return { reply: `Hi, I'm Pascal. ${p ? HELP : "Open a website and I can change it for you. From here I can start a new one or take you where you need to go."}`, examples: p ? EXAMPLES.slice(0, 6) : ["Create new project", "Open floor plans", "Open leads"] };
 
     // ── dashboard: no website open ──
     if (!p || !d) {
       // a sentence that describes a site ("a website for 24 flats in Zürich, rental") starts one with that description
       const describes = !/^(open|go to|show|take me)\b/.test(t) && (raw.split(/\s+/).length >= 4 || /\b(for|für|pour|per)\b|apartment|flat|wohnung|shopping|booking|blog|office/.test(t));
       if (describes) return { reply: "Sounds good, let's build it. I take your words as the description, you add the name and pick what the site needs, then I build it.", go: `/new?about=${encodeURIComponent(raw.slice(0, 600))}`, confirmLabel: "Build it" };
-      if (/new (web)?site|start|create/.test(t)) return { reply: "Let's start a new website.", go: "/new", confirmLabel: "Start" };
+      if (/new (web)?site|new project|start|create/.test(t)) return { reply: "Let's create a new project.", go: "/new", confirmLabel: "Start" };
       if (/floor ?plan/.test(t)) return { reply: "Floor plans live here.", go: "/studio", confirmLabel: "Open" };
       if (/lead|enquir/.test(t)) return { reply: "Your enquiries are here.", go: "/leads", confirmLabel: "Open" };
       if (/brochure/.test(t)) return { reply: "Brochures are here.", go: "/brochures", confirmLabel: "Open" };
       if (/^(open )?(my )?(websites?|sites?|projects?)$/.test(t)) return { reply: "All your websites are here.", go: "/websites", confirmLabel: "Open" };
-      return cannot("Tell me what the website is for, for example “apartments for rent in Zürich”, and I build it with you.", ["New website", "Website for a shopping centre", "Open my websites"]);
+      return cannot("Tell me what the website is for, for example “apartments for rent in Zürich”, and I build it with you.", ["Create new project", "Website for a shopping centre", "Open my websites"]);
     }
 
     const list = blocksOf(d);

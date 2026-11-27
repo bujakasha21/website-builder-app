@@ -6,6 +6,7 @@ import Voice from "@/components/Voice";
 import NewIntro from "@/components/NewIntro";
 import BuildLoader from "@/components/BuildLoader";
 import { readLogo } from "@/lib/logo";
+import DropAll from "@/components/DropAll";
 import UnitsEditor from "@/components/UnitsEditor";
 import { IsometryView } from "@/components/Isometry";
 import { isoFromImage, parseIsometry } from "@/lib/isometry";
@@ -102,7 +103,7 @@ export default function NewSite() {
   const [i, setI] = useState(0);
   const [mode, setMode] = useState<Mode | null>(about ? "ai" : null);
   const [making, setMaking] = useState<string | null>(null);
-  // a short curtain every time "New website" opens (not when only the profile is edited)
+  // a short curtain every time "Create new project" opens (not when only the profile is edited)
   const [intro, setIntro] = useState(!onlyProfile);
 
   const baseScreens: Screen[] = useMemo(() => [...(askProfile ? (["role", "experience"] as Screen[]) : []), ...(onlyProfile ? [] : (["mode", "kind", "about", "features", "look"] as Screen[]))], [askProfile, onlyProfile]);
@@ -171,7 +172,7 @@ export default function NewSite() {
   };
 
   const tplId = VIBES.find((v) => v.id === b.vibe)?.template ?? "atelier";
-  const base = { name: b.name.trim() || "New website", address: address.trim(), zip: zip.trim(), city: city.trim(), type: b.offer ?? "rent", units: [], floorPlans: [] };
+  const base = { name: b.name.trim() || "New project", address: address.trim(), zip: zip.trim(), city: city.trim(), type: b.offer ?? "rent", units: [], floorPlans: [] };
   /** the site as the answers describe it; `id` "__preview" is the hidden project the look previews read logo and apartments from */
   const makeSite = (id: string, template = tplId): Project => {
     const t = TEMPLATES.find((x) => x.id === template) ?? TEMPLATES[0];
@@ -250,7 +251,7 @@ export default function NewSite() {
 
           {screen === "mode" && (
             <>
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">How would you like to build it?</h1>
               <p className="ob-sub">A few questions follow either way, then you land in the same editor and can change everything.</p>
               <div className="ob-two" role="radiogroup" aria-label="How to build">
@@ -271,7 +272,7 @@ export default function NewSite() {
 
           {screen === "kind" && (
             <>
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">What is this website for?</h1>
               <div className="ob-grid three" role="radiogroup" aria-label="Kind of website">
                 {KINDS.map((k) => <Card key={k.id} title={k.label} note={k.note} on={kind === k.id} onClick={() => setKind(k.id)} />)}
@@ -281,7 +282,7 @@ export default function NewSite() {
 
           {screen === "about" && (
             <>
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">Name it and tell us about it</h1>
               <p className="ob-sub">A few sentences are enough. They become the first texts on the site, and you can edit everything afterwards.</p>
               <label className="ob-field"><span>Name</span><input className="input" autoFocus value={b.name} onChange={(e) => setBrief({ ...b, name: e.target.value })} placeholder={kind === "shopping-centre" ? "e.g. Shopping Arena" : kind === "residential" ? "e.g. Parkhof Bern" : "Name of the site"} /></label>
@@ -307,7 +308,7 @@ export default function NewSite() {
 
           {screen === "features" && (
             <>
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">What should the site have?</h1>
               <p className="ob-sub">Preselected for a {KINDS.find((k) => k.id === kind)?.label.toLowerCase()}. Add or remove anything; sections can also be added later.</p>
               {(["Property", "Content", "Business"] as const).map((g) => (
@@ -323,9 +324,14 @@ export default function NewSite() {
 
           {screen === "units" && (
             <>
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">Where do the {commercialSite ? "spaces" : "apartments"} come from?</h1>
-              <p className="ob-sub">While you test, take the generated test apartments. The real source can be switched any time later under Apartments.</p>
+              <p className="ob-sub">Drop your documents and Pascal takes the apartments and floor plans from them. Or pick a source below; while you test, the generated test apartments are fine.</p>
+              <DropAll
+                onUnits={(u, name) => { setBrief((x) => ({ ...x, kind, features: b.features, unitSource: "sheet", units: u })); setSheetNote(`${u.length} rows read from “${name}”. Check them below.`); }}
+                onPlans={(plans) => { setBrief((x) => ({ ...x, kind, features: b.features, floorPlans: [...(x.floorPlans ?? []).filter((q) => !/\(test\)$/.test(q.name ?? "")), ...plans], buildingView: "3d" })); setIsoKind("test3d"); }}
+                onLogo={async (f) => { const r = await readLogo(f); setBrief((x) => ({ ...x, kind, features: b.features, logo: r.src, logoOnDark: r.onDark, palette: r.palette, paletteFromLogo: r.fromLogo, accent: r.fromLogo ? r.palette[0] : x.accent })); }}
+              />
               <div className="ob-grid four" role="radiogroup" aria-label="Source of the apartments">
                 {UNIT_SOURCES.map((x) => <Card key={x.id} title={x.label} note={x.note} on={src === x.id} onClick={() => setSource(x.id)} />)}
               </div>
@@ -404,7 +410,7 @@ export default function NewSite() {
           {screen === "look" && (
             <>
               <PreviewSync project={makeSite("__preview")} />
-              <div className="eyebrow">New website</div>
+              <div className="eyebrow">New project</div>
               <h1 className="ob-h">Pick a look</h1>
               <p className="ob-sub">Built live from your answers. Colours, fonts and corners can be changed later in Site settings.</p>
               <div className="ob-grid three" role="radiogroup" aria-label="Look">

@@ -35,7 +35,7 @@ export default function HomeShell({ children }: { children: React.ReactNode }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/streamnow.svg" alt="streamnow" style={{ height: 22 }} />
         </Link>
-        <Link href="/new" className="btn btn-primary btn-sm">New website</Link>
+        <Link href="/new" className="btn btn-primary btn-sm">Create new project</Link>
         <button type="button" className="home-burger" aria-label={menu ? "Close menu" : "Open menu"} aria-expanded={menu} onClick={() => setMenu(!menu)}><i /><i /><i /></button>
       </header>
       {menu ? <button type="button" className="home-scrim" aria-label="Close menu" onClick={() => setMenu(false)} /> : null}
@@ -58,7 +58,7 @@ export default function HomeShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="px-3 mt-2">
-          <Link href="/new" className="btn btn-primary w-full">New website</Link>
+          <Link href="/new" className="btn btn-primary w-full">Create new project</Link>
         </div>
         <div className="mt-auto p-4 border-t border-line flex items-center gap-3">
           <span className="w-8 h-8 flex items-center justify-center text-xs font-semibold" style={{ borderRadius: "50%", background: "var(--accent)", color: "var(--accent-ink)" }}>{USER.initials}</span>

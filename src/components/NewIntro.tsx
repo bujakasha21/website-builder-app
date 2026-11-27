@@ -47,7 +47,7 @@ export default function NewIntro({ first, onDone }: { first: boolean; onDone: ()
         <div className="nx-pascal">
           <span className="nx-face"><PascalFace mood="happy" size={56} /></span>
           <div className="nx-bubble" role="status">
-            <Typed text={first ? "Hi, I'm Pascal! Let's build your first website. First, a little about you." : "Hi again! Let's build a new website."} />
+            <Typed text={first ? "Hi, I'm Pascal! Let's build your first website. First, a little about you." : "Hi again! Let's create a new project."} />
           </div>
         </div>
       </div>

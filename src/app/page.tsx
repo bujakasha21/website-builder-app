@@ -20,7 +20,7 @@ const TOOLS = [
 
 export default function Dashboard() {
   const db = useDb();
-  // no redirect: the dashboard always opens first; the questions about the person come with "New website"
+  // no redirect: the dashboard always opens first; the questions about the person come with "Create new project"
   const projects = (db?.projects ?? []).filter((p) => !p.id.startsWith("__"));
   const apts = projects.flatMap((p) => p.units.filter((u) => (u.use ?? "apartment") === "apartment"));
   const leads = projects.flatMap((p) => p.leads.map((l) => ({ ...l, project: p.name, pid: p.id }))).sort((a, b) => b.at - a.at);

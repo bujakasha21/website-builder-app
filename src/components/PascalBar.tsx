@@ -213,7 +213,7 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
 
       <form className="pascal-bar" onSubmit={(e) => { e.preventDefault(); ask(input); }}>
         <span className="pascal-face" aria-hidden>P</span>
-        <input ref={field} value={input} onChange={(e) => setInput(e.target.value)} onFocus={() => msgs.length && setTalk(true)} placeholder={mode === "editor" ? "Ask Pascal: “add a gallery”, “make it blue” …" : inline ? "Describe your website, or ask me anything …" : "Ask Pascal: “new website” …"} aria-label="Message to Pascal" autoComplete="off" />
+        <input ref={field} value={input} onChange={(e) => setInput(e.target.value)} onFocus={() => msgs.length && setTalk(true)} placeholder={mode === "editor" ? "Ask Pascal: “add a gallery”, “make it blue” …" : inline ? "Describe your website, or ask me anything …" : "Ask Pascal: “create new project” …"} aria-label="Message to Pascal" autoComplete="off" />
         {prog ? (
           <button type="button" className={`pascal-ring ${prog.percent === 100 ? "full" : ""}`} onClick={() => setList(!list)} aria-expanded={list} aria-label={`${prog.percent}% done, show the list`} style={{ ["--pct" as string]: prog.percent }}>
             <span>{prog.percent === 100 ? "✓" : `${prog.percent}%`}</span>

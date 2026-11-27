@@ -9,7 +9,7 @@ export default function Websites() {
   const db = useDb();
   return (
     <HomeShell>
-      <PageHead eyebrow="Websites" title="Your project websites" text="Hover a card to delete a website." action={<Link href="/new" className="btn btn-primary">New website</Link>} />
+      <PageHead eyebrow="Websites" title="Your project websites" text="Hover a card to delete a website." action={<Link href="/new" className="btn btn-primary">Create new project</Link>} />
       {!db ? <Loading /> : <ProjectCards projects={db.projects.filter((p) => !p.id.startsWith("__"))} />}
     </HomeShell>
   );
