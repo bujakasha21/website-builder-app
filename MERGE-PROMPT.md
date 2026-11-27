@@ -35,13 +35,23 @@ You are merging two prototypes of the same product into one codebase.
    - It understands headers like Whg.-Nr., Haus, Geschoss, Zi., Wohnfläche m², Nettomiete, NK Akonto, Status.
    - It maps "Haus A" → A, EG/1. OG/Attika → 0/1/9, and frei/vermietet/reserviert → status.
    - **Still to do:** Studio's extra columns (Loggia/Balkon m², «Bezug ab», Haus B gespiegelt) → new optional `Unit` fields, shown in the unit table and the brochure.
-4. **Floor plans the Studio way.**
-   - Plans arrive with the other documents.
-   - Storey plans are cut into apartments ("8 Geschosspläne, daraus 24 Wohnungen ausgeschnitten").
-   - Mirrored houses reuse the plan of the other house.
-   - Older plan revisions are set aside.
-   - Studio shows a "1 plan in review" badge until a person confirms a plan.
-   - Our reading lives in `src/lib/floorplan/*` (PDF reading, Claude refine in `src/app/api/ai/plan`) and `PlansWorkspace.tsx`. Keep that code, add the cut-into-apartments, mirrored-house and review-status steps.
+4. **Floor plans the Studio way.** *(done, commit 01e710b)*
+   - His reading is ported 1:1 into `src/lib/floorplan/studio.ts`: `analysePlan`, `deskewCanvas`, `morph`, `cleanPlanCanvas` and the 3D wall grid.
+   - His 3D is `src/components/plan/Studio3D.tsx`.
+   - On the Floor plans page (`PlansWorkspace.tsx`), the first two tabs are his:
+     - **Plan:** a before/after slider, architect's page against the clean plan with parquet and dark walls.
+     - **3D:** walls extruded 2.5 m, parquet floor, shadows.
+   - Also his:
+     - the floor choice (Eiche hell / geräuchert / Nussbaum / Sichtbeton);
+     - "Generate again" with 3 variants;
+     - several plans at once, each with a progress bar and Ready/Error status.
+   - Our room reading (areas, apartments, furniture, walk-through, building) stays as further tabs.
+   - **Still to do from Studio:**
+     - storey plans cut into apartments;
+     - a mirrored house reusing the plan of the other house;
+     - older plan revisions set aside;
+     - the "1 plan in review" status until a person confirms a plan;
+     - furniture styles (Möbel/Einrichtungsstil) on the clean plan.
 
 ## Keep ours, do not take over
 
