@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, ViewTransition } from "react";
 import { SitePreview, TopBar } from "@/components/shell";
 import Voice from "@/components/Voice";
 import NewIntro from "@/components/NewIntro";
+import BuildLoader from "@/components/BuildLoader";
 import { readLogo } from "@/lib/logo";
 import UnitsEditor from "@/components/UnitsEditor";
 import { IsometryView } from "@/components/Isometry";
@@ -58,6 +59,18 @@ function Card({ on, onClick, title, note, multi }: { on: boolean; onClick: () =>
  * your profile). Every new site: what it is, name and description (typed or spoken), the features it needs, the look
  * and languages, and how to start. The answers build the first version of the page.
  */
+/** what kind of site a typed sentence describes; undefined when it does not say */
+function kindFromText(t: string): SiteKind | undefined {
+  const x = t.toLowerCase();
+  if (!x) return undefined;
+  if (/shopping|mall|einkauf|centre commercial|centro commerciale|shops\b/.test(x)) return "shopping-centre";
+  if (/booking|book (a|rooms?)|cowork|meeting room|buchung|reserv/.test(x)) return "booking";
+  if (/\bblog\b|magazine|news site/.test(x)) return "blog";
+  if (/office|commercial|gewerbe|büro|retail space/.test(x)) return "commercial";
+  if (/apartment|flat|wohnung|home|residen|building|rent|sale|appartement|appartamento/.test(x)) return "residential";
+  return undefined;
+}
+
 export default function NewSite() {
   const profile = useProfile();
   const router = useRouter();
@@ -70,11 +83,16 @@ export default function NewSite() {
 
   const [pr, setPr] = useState<Omit<Profile, "at">>({ role: "company", experience: "some", purposes: [] });
   const [prTouched, setPrTouched] = useState<Partial<Record<"role" | "experience" | "purposes", boolean>>>({});
-  const [brief, setBrief] = useState<Brief>({ kind: "residential", name: "", description: "", features: KIND_FEATURES.residential, vibe: "elegant", languages: ["de-CH"] });
-  const [city, setCity] = useState("");
+  // from the dashboard: "?about=" is what the person typed to Pascal, "?look=" the template card they clicked
+  const about = (q.get("about") ?? "").trim().slice(0, 600);
+  const aboutKind = kindFromText(about);
+  const lookParam = VIBES.find((v) => v.id === q.get("look"))?.id;
+  const [brief, setBrief] = useState<Brief>({ kind: aboutKind ?? "residential", name: "", description: about, features: KIND_FEATURES[aboutKind ?? "residential"], vibe: lookParam ?? "elegant", languages: ["de-CH"] });
+  // "… in Zürich near the lake" → town Zürich
+  const [city, setCity] = useState(() => about.match(/\b(?:in|im|à|a)\s+([A-ZÄÖÜÀ-Þ][\p{L}-]+)/u)?.[1] ?? "");
   const [address, setAddress] = useState("");
   const [zip, setZip] = useState("");
-  const [kindTouched, setKindTouched] = useState(false);
+  const [kindTouched, setKindTouched] = useState(!!aboutKind);
   const [voiceLang, setVoiceLang] = useState("de-CH");
   const [logoErr, setLogoErr] = useState<string | null>(null);
   const [isoKind, setIsoKind] = useState<IsoKind>("test3d");
@@ -82,7 +100,8 @@ export default function NewSite() {
   const [isoErr, setIsoErr] = useState<string | null>(null);
   const [sheetNote, setSheetNote] = useState<string | null>(null);
   const [i, setI] = useState(0);
-  const [mode, setMode] = useState<Mode | null>(null);
+  const [mode, setMode] = useState<Mode | null>(about ? "ai" : null);
+  const [making, setMaking] = useState<string | null>(null);
   // a short curtain every time "New website" opens (not when only the profile is edited)
   const [intro, setIntro] = useState(!onlyProfile);
 
@@ -170,7 +189,8 @@ export default function NewSite() {
   const createNow = () => {
     const id = (base.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "site") + "-" + uid().slice(0, 4);
     addProject(makeSite(id));
-    router.push(`/edit/${id}`);
+    // the same curtain as Pascal's build (at least 5 s), then the editor
+    setMaking(id);
   };
   /** what goes to Pascal / the editor: the apartments of the chosen source are fixed here */
   const final = (): Brief => (needsUnits(b)
@@ -193,6 +213,7 @@ export default function NewSite() {
     <ViewTransition enter="page-in" exit="page-out" default="none">
       <TopBar />
       {intro ? <NewIntro first={askProfile} onDone={() => setIntro(false)} /> : null}
+      {making ? <BuildLoader ready title="Setting up your website" lines={["Laying out the sections …", "Mixing the colours …", "Placing the apartments …", "Opening the editor …"]} onDone={() => router.push(`/edit/${making}`)} /> : null}
       <main className={`ob ${intro ? "ob-hidden" : "ob-enter"}`}>
         <div className="ob-top">
           <button type="button" className="btn btn-sm btn-ghost" onClick={back}>← Back</button>

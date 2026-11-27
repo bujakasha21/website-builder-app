@@ -5,8 +5,9 @@ import { useEffect, useRef, useState, ViewTransition } from "react";
 import { ADV_VARIANTS, fileToDataUrl, GALLERY_VARIANTS, HERO_VARIANTS, MAP_VARIANTS, TI_VARIANTS } from "@/editor/blocks";
 import { config } from "@/editor/config";
 import { FINDER_VARIANTS } from "@/editor/UnitFinder";
-import { Bricks, confetti, PascalFace, ScanSheet, Tower, Typed } from "@/components/PascalFun";
+import { confetti, PascalFace, ScanSheet, Tower, Typed } from "@/components/PascalFun";
 import Playground from "@/components/Playground";
+import BuildLoader from "@/components/BuildLoader";
 import { SitePreview, TopBar } from "@/components/shell";
 import { kindOf } from "@/lib/floorplan/furnish";
 import { planFromFile, planFromUrl } from "@/lib/floorplan/pdf";
@@ -20,6 +21,7 @@ import { writeCopy } from "@/lib/copy";
 import { claudeAvailable, claudeCopy } from "@/lib/ai";
 import type { FloorPlan, Project, TemplateId, Unit } from "@/lib/types";
 
+const BUILD_LINES = ["Reading your answers …", "Mixing the colours from your logo …", "Writing the texts …", "Laying out the sections …", "Placing the apartments …", "Hanging the pictures …", "Polishing the windows …"];
 interface Line { text: string; items?: string[]; done?: boolean }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -107,7 +109,10 @@ function Thumb({ children, ratio = 0.6 }: { children: React.ReactNode; ratio?: n
 export default function AiBuilder() {
   const db = useDb();
   const [lines, setLines] = useState<Line[]>([{ text: "Hi, I am Pascal. Give me one PDF with a floor plan and put the kettle on. I read the rooms and areas, ask you for the few things a plan cannot tell me, and then we go through the page block by block – I suggest, you choose." }]);
-  const [building, setBuilding] = useState(false);
+  // the full-screen curtain while the site is built: at least 5 s, and it lifts only when the site is stored
+  const [loader, setLoader] = useState<{ ready: boolean } | null>(null);
+  const lifted = useRef<(() => void) | null>(null);
+  const openLoader = () => { setLoader({ ready: false }); return new Promise<void>((r) => { lifted.current = r; }); };
   const [quip, setQuip] = useState("");
   const quipT = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cheer = (t: string) => { setQuip(t); if (quipT.current) clearTimeout(quipT.current); quipT.current = setTimeout(() => setQuip(""), 2600); };
@@ -183,6 +188,7 @@ export default function AiBuilder() {
   const create = async (got = found, running = false) => {
     if (!got || (busy && !running)) return;
     setBusy(true);
+    const curtain = openLoader();
     const core = { name: form.name.trim() || "New project", address: form.address.trim(), zip: form.zip.trim(), city: form.city.trim(), type: form.type, units: got.units.length ? got.units : brief?.units ?? [], floorPlans: got.plan ? [got.plan] : brief?.floorPlans ?? [] };
     const id = (core.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project") + "-" + uid().slice(0, 4);
     const draftP = { ...core, id, template: "atelier" as TemplateId } as Project;
@@ -211,12 +217,12 @@ export default function AiBuilder() {
     // with the interview Pascal decides every section version himself; the owner can still go through them afterwards
     const picks = brief ? stepsOf(built).filter((x) => x.key !== "template").map((x) => ({ st: x, ...suggest(x, built, ownPhoto) })) : [];
     const project: Project = picks.length ? { ...built, draft: { ...built.draft, content: (built.draft.content as Block[]).map((c) => { const k = picks.find((q) => q.st.key === c.type); return k ? { ...c, props: { ...c.props, [k.st.field!]: k.value } } : c; }) } as Data } : built;
-    setBuilding(true);
-    await say({ text: "Hard hat on. Building the first version …" }, 1900);
     addProject(project);
     clearBriefDraft();
     setPid(id);
-    setBuilding(false);
+    setLoader({ ready: true });
+    await curtain;
+    setLoader(null);
     confetti();
     cheer("Ta-da!");
     if (!brief) {
@@ -307,6 +313,7 @@ export default function AiBuilder() {
   return (
     <ViewTransition enter="page-in" exit="page-out" default="none">
       <Playground />
+      {loader ? <BuildLoader ready={loader.ready} onDone={() => lifted.current?.()} lines={BUILD_LINES} /> : null}
       <TopBar>
         <span className="text-line-strong">/</span>
         <span className="font-medium">AI builder with Pascal</span>
@@ -343,9 +350,7 @@ export default function AiBuilder() {
         </section>
 
         <section className="col-span-12 lg:col-span-8">
-          {building ? (
-            <div className="panel h-full flex items-center justify-center" style={{ minHeight: 560 }}><Bricks lines={["Laying the foundations …", "Putting up the walls …", "Hanging the pictures …", "Polishing the windows …"]} /></div>
-          ) : !found && busy ? (
+          {!found && busy ? (
             <div className="panel h-full flex items-center justify-center" style={{ minHeight: 560 }}><ScanSheet lines={["Finding the walls …", "Counting rooms …", "Looking for the kitchen …", "Measuring the living room …", "Checking where the sofa fits …"]} /></div>
           ) : !found ? (
             <div className="panel h-full flex flex-col items-center justify-center text-center p-10" style={{ minHeight: 560, borderStyle: "dashed" }}>

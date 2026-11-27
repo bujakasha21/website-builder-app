@@ -1,22 +1,24 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 /** the four languages of the Swiss market; Chrome and Edge recognise all of them */
 export const VOICE_LANGS = [["de-CH", "DE"], ["fr-CH", "FR"], ["it-CH", "IT"], ["en-GB", "EN"]] as const;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+const noop = () => () => {};
 const Recognition = (): any => (typeof window === "undefined" ? null : (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition ?? null);
 
 /**
  * Hold-to-talk (or click to start / stop) speech input. The browser turns speech into text, the text goes into the field,
  * where the person can correct it before anything is sent. Nothing is recorded or uploaded by this app.
  */
-export default function Voice({ onText, lang, onLang }: { onText: (t: string) => void; lang: string; onLang: (l: string) => void }) {
+export default function Voice({ onText, lang, onLang, compact }: { onText: (t: string) => void; lang: string; onLang: (l: string) => void; /** only a round microphone button (chat bars) */ compact?: boolean }) {
   const [on, setOn] = useState(false);
   const [interim, setInterim] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const rec = useRef<any>(null);
-  const supported = !!Recognition();
+  // false on the server and during hydration, the real answer right after (no hydration mismatch)
+  const supported = useSyncExternalStore(noop, () => !!Recognition(), () => false);
   useEffect(() => () => rec.current?.abort?.(), []);
 
   const start = () => {
@@ -44,6 +46,11 @@ export default function Voice({ onText, lang, onLang }: { onText: (t: string) =>
   };
   const stop = () => rec.current?.stop();
 
+  if (compact) return supported ? (
+    <button type="button" className={`voice-mic ${on ? "on" : ""}`} onClick={() => (on ? stop() : start())} aria-pressed={on} aria-label={on ? "Stop speaking" : "Speak instead of typing"} title={err ?? (on ? interim || "Listening … click to stop" : "Speak instead of typing")}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+    </button>
+  ) : null;
   if (!supported) return <p className="voice-note">Speech input works in Chrome, Edge and Safari.</p>;
   return (
     <div className="voice">

@@ -5,6 +5,12 @@ import ProjectCards from "@/components/ProjectCards";
 import { Loading } from "@/components/shell";
 import { CountUp } from "@/components/Playground";
 import { resetDemo, useDb } from "@/lib/store";
+import PascalBar from "@/components/PascalBar";
+import { PascalFace } from "@/components/PascalFun";
+import { heroOf } from "@/components/BuildLoader";
+import { SitePreview } from "@/components/shell";
+import { VIBES } from "@/lib/profile";
+import { TEMPLATES } from "@/lib/templates";
 
 const TOOLS = [
   { href: "/new", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></svg>, title: "Website", text: "A project site for a whole building: unit list, isometry, viewings and contact form.", cta: "Start the wizard" },
@@ -27,17 +33,16 @@ export default function Dashboard() {
     { label: "Available apartments", value: free, of: apts.length, tone: "sun", icon: "M4 11 12 4l8 7v9H4zM10 20v-6h4v6" },
     { label: "Leads", value: leads.length, tone: "coral", icon: "M4 6h16v12H4zM4 7l8 6 8-6" },
   ];
-  const nudge = !projects.length ? "Let's build your first website. It takes a few minutes." : leads.length ? `You have ${leads.length} ${leads.length === 1 ? "enquiry" : "enquiries"} waiting.` : live < projects.length ? `${projects.length - live} of your websites ${projects.length - live === 1 ? "is" : "are"} still a draft. Ready to go live?` : "Everything is live. What shall we build next?";
+  const nudge = !projects.length ? "Let's build your first website. Tell me what it is for and I take it from there." : leads.length ? `You have ${leads.length} ${leads.length === 1 ? "enquiry" : "enquiries"} waiting.` : live < projects.length ? `${projects.length - live} of your websites ${projects.length - live === 1 ? "is" : "are"} still a draft. Ready to go live?` : "Everything is live. What shall we build next?";
   return (
     <HomeShell>
-      <div className="dash-hello">
-        <div>
-          <div className="eyebrow">{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</div>
-          <h1 className="text-[40px] leading-[1.05] font-semibold tracking-tight mt-2">{hour < 12 ? "Good morning" : hour < 18 ? "Welcome back" : "Good evening"}, <span className="mark">{USER.name}</span></h1>
-          <p className="text-muted text-[16px] mt-3">{db ? nudge : " "}</p>
-        </div>
-        <Link href="/new" className="btn btn-primary dash-go">New website <span aria-hidden>→</span></Link>
-      </div>
+      {/* Pascal first: describe the website (or ask anything) right at the top of the dashboard */}
+      <section className="dash-top" aria-label="Ask Pascal">
+        <span className="dash-pascal"><PascalFace mood="happy" size={30} /><b>Pascal</b><small>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</small></span>
+        <h1>{hour < 12 ? "Good morning" : hour < 18 ? "Welcome back" : "Good evening"}, <span className="mark">{USER.name}</span></h1>
+        <p>{db ? nudge : " "}</p>
+        <PascalBar mode="home" inline />
+      </section>
       {!db ? <Loading /> : (
         <>
           <dl className="dash-line">
@@ -46,7 +51,26 @@ export default function Dashboard() {
             ))}
           </dl>
 
-          <div className="flex items-baseline justify-between mt-10 mb-4">
+          <div className="flex items-baseline justify-between mt-12 mb-4">
+            <h2 className="text-[20px] font-semibold tracking-tight">Start from a template</h2>
+            <Link href="/new" className="text-[13px] underline">Or answer a few questions</Link>
+          </div>
+          <div className="dash-tpls">
+            {TEMPLATES.map((t, i) => {
+              const h = heroOf(t.id);
+              const vibe = VIBES.find((v) => v.template === t.id);
+              return (
+                // the preview has links of its own, so the card link is the title stretched over the whole card (no <a> in <a>)
+                <div key={t.id} className="dash-tpl rise" style={{ animationDelay: `${i * 60}ms` }}>
+                  <span className="dash-tpl-pv" inert><SitePreview data={h.data} projectId="__tpl" accent={h.accent} width={340} height={200} /></span>
+                  <Link href={`/new${vibe ? `?look=${vibe.id}` : ""}`} className="dash-tpl-t">{t.name}</Link>
+                  <span className="dash-tpl-d">{t.note}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-baseline justify-between mt-12 mb-4">
             <h2 className="text-[20px] font-semibold tracking-tight">Your websites</h2>
             {projects.length > 3 ? <Link href="/websites" className="text-[13px] underline">All {projects.length}</Link> : null}
           </div>
