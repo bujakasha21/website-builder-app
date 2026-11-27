@@ -6,6 +6,7 @@ import Plan2D from "@/components/plan/Plan2D";
 import { CATALOGUE, catalogueFor, kindOf, newPiece, piecesOf, type Piece } from "@/lib/floorplan/furnish";
 import { planFromFile, planFromUrl } from "@/lib/floorplan/pdf";
 import { refineWithClaude } from "@/lib/floorplan/refine";
+import { FLOORS, STUDIO_ERRORS, studioPlan, type FloorKey } from "@/lib/floorplan/studio";
 import { updateProject, useProject } from "@/lib/store";
 import { buildingsOf, floorsOf, groupColor, groupOf, groupsOf, slotsOf, unitsOnFloor } from "@/lib/building";
 import { findRenderer, noRenderer, RENDER_STYLES, type RenderProvider, type RenderStyle } from "@/lib/render/provider";
@@ -14,6 +15,24 @@ import { download } from "@/lib/units-import";
 
 const Plan3D = dynamic(() => import("@/components/plan/Plan3D"), { ssr: false });
 const Building3D = dynamic(() => import("@/components/plan/Building3D"), { ssr: false });
+const Studio3D = dynamic(() => import("@/components/plan/Studio3D"), { ssr: false });
+
+/** before / after like in the colleague's Studio: the architect's page on the left of the handle, the clean plan on the right */
+function BeforeAfter({ plan }: { plan: FloorPlan }) {
+  const [at, setAt] = useState(55);
+  const st = plan.studio!;
+  const [u0, v0, u1, v1] = st.crop, cw = u1 - u0, ch = v1 - v0, [w, h] = st.size;
+  return (
+    <div className="ba" style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, calc(530px * ${w} / ${h}))` }}>
+      <div className="ba-layer"><img src={plan.image} alt="" style={{ position: "absolute", width: `${100 / cw}%`, height: `${100 / ch}%`, left: `${(-u0 / cw) * 100}%`, top: `${(-v0 / ch) * 100}%`, maxWidth: "none" }} /></div>
+      <div className="ba-layer" style={{ clipPath: `inset(0 0 0 ${at}%)` }}><img src={st.clean} alt={`${plan.name}, clean plan`} style={{ width: "100%", height: "100%" }} /></div>
+      <span className="ba-tag l">Original from the architect</span>
+      <span className="ba-tag r">Result</span>
+      <span className="ba-handle" style={{ left: `${at}%` }} aria-hidden />
+      <input type="range" min={0} max={100} value={at} onChange={(e) => setAt(+e.target.value)} className="ba-range" aria-label="Compare original and result" />
+    </div>
+  );
+}
 
 const SAMPLES = [
   ["/samples/floor-plan-typical-floor.pdf", "Whole floor (4 apartments)"],
@@ -33,7 +52,10 @@ export default function PlansWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [current, setCurrent] = useState<string | null>(null);
-  const [view, setView] = useState<"orig" | "2d" | "top" | "doll" | "3d" | "bld">("doll");
+  const [view, setView] = useState<"plan" | "s3d" | "orig" | "2d" | "top" | "doll" | "3d" | "bld">("plan");
+  // the Studio way: per plan a progress bar while it is read, then ready or an error; "Generate again" tries the next variant
+  const [prog, setProg] = useState<Record<string, number>>({});
+  const [serr, setSerr] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   const [step, setStep] = useState("");
   /** renders the 2D / 3D presentation picture at print size */
@@ -44,8 +66,22 @@ export default function PlansWorkspace({ id }: { id: string }) {
   const [over, setOver] = useState(false);
   const [piece, setPiece] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const plan = p ? p.floorPlans.find((f) => f.id === current) ?? p.floorPlans[0] : undefined;
+  const runStudio = async (fp: FloorPlan, variant = fp.studio ? fp.studio.variant + 1 : 0, floor: FloorKey = (fp.studio?.floor as FloorKey) ?? "Eiche hell") => {
+    if (!p || prog[fp.id] !== undefined) return;
+    setSerr((x) => { const n = { ...x }; delete n[fp.id]; return n; });
+    setProg((x) => ({ ...x, [fp.id]: 4 }));
+    try {
+      const st = await studioPlan(fp.image, { variant, floor, metersPerUnit: fp.metersPerUnit, onStep: (v) => setProg((x) => ({ ...x, [fp.id]: v })) });
+      updateProject(p.id, (x) => ({ ...x, floorPlans: x.floorPlans.map((f) => (f.id === fp.id ? { ...f, studio: st } : f)) }));
+    } catch (e) {
+      setSerr((x) => ({ ...x, [fp.id]: STUDIO_ERRORS[e instanceof Error && e.message in STUDIO_ERRORS ? e.message : "read"] }));
+    }
+    setProg((x) => { const n = { ...x }; delete n[fp.id]; return n; });
+  };
+  // plans added before this existed are read the Studio way the first time they are opened
+  useEffect(() => { if (plan && !plan.studio && prog[plan.id] === undefined && !serr[plan.id]) runStudio(plan, 0); }, [plan?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!p) return null;
-  const plan = p.floorPlans.find((f) => f.id === current) ?? p.floorPlans[0];
 
   const add = async (make: () => Promise<FloorPlan>, label: string) => {
     setBusy(label);
@@ -64,8 +100,11 @@ export default function PlansWorkspace({ id }: { id: string }) {
       if (!fp.rooms.length) setError(`No enclosed rooms were found in “${label}”. Plans with solid, filled walls work best.`);
       updateProject(p.id, (x) => ({ ...x, floorPlans: [...x.floorPlans, fp] }));
       setCurrent(fp.id);
-      setView("doll");
+      setView("plan");
       setSel(null);
+      setBusy(null);
+      await runStudio(fp, 0);
+      return;
     } catch (e) {
       console.error(e);
       setError("The file could not be processed.");
@@ -78,7 +117,8 @@ export default function PlansWorkspace({ id }: { id: string }) {
     if (current === f.id) setCurrent(null);
     setSel(null);
   };
-  const onFiles = (files: FileList | null) => { const f = files?.[0]; if (f) add(() => planFromFile(f, f.name), f.name); };
+  // several plans at once, read one after the other (Studio's "Pläne hinzufügen")
+  const onFiles = async (files: FileList | null) => { for (const f of [...(files ?? [])]) await add(() => planFromFile(f, f.name), f.name); };
   const patch = (fn: (f: FloorPlan) => FloorPlan) => plan && updateProject(p.id, (x) => ({ ...x, floorPlans: x.floorPlans.map((f) => (f.id === plan.id ? fn(f) : f)) }));
   const setRooms = (rooms: Room[]) => patch((f) => ({ ...f, rooms }));
   const patchRoom = (rid: string, r: Partial<Room>) => patch((f) => ({ ...f, rooms: f.rooms.map((x) => (x.id === rid ? { ...x, ...r } : x)) }));
@@ -163,9 +203,9 @@ export default function PlansWorkspace({ id }: { id: string }) {
           className={`block border border-dashed p-5 text-center cursor-pointer transition-all ${over ? "border-accent bg-surface scale-[1.01]" : "border-line-strong hover:border-ink"}`}
           style={{ borderRadius: 6 }}
         >
-          <div className="font-medium">Upload a PDF or image</div>
-          <div className="text-muted text-[13px] mt-1">Drop it here or click. The 2D and 3D views are generated from the plan.</div>
-          <input type="file" accept="application/pdf,image/*" hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
+          <div className="font-medium">Add plans</div>
+          <div className="text-muted text-[13px] mt-1">Drag plans here or click. PDF, PNG or JPG, several at once; walls are found, then 2D and 3D are drawn.</div>
+          <input type="file" accept="application/pdf,image/*" multiple hidden onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
         </label>
         <div className="text-[13px] text-muted">
           Try a sample:{" "}
@@ -179,8 +219,14 @@ export default function PlansWorkspace({ id }: { id: string }) {
           {p.floorPlans.length === 0 ? <div className="p-4 text-muted text-[13px]">No floor plans yet.</div> : p.floorPlans.map((f) => (
             <div key={f.id} className={`group relative border-b border-line last:border-0 transition-colors ${plan?.id === f.id ? "bg-sunken" : "hover:bg-bg"}`}>
               <button onClick={() => { setCurrent(f.id); setSel(null); }} className="w-full text-left p-3 pr-11 flex gap-3 items-center">
-                <img src={f.image} alt="" className="w-12 h-9 object-cover border border-line" style={{ borderRadius: 3 }} />
-                <span className="min-w-0"><span className="block font-medium truncate">{f.name}</span><span className="text-muted text-[12px] tnum">{f.rooms.filter((r) => r.confirmed).length}/{f.rooms.length} rooms confirmed</span></span>
+                <img src={f.studio?.clean ?? f.image} alt="" className="w-12 h-9 object-cover border border-line" style={{ borderRadius: 3 }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium truncate">{f.name}</span>
+                  <span className="text-muted text-[12px] tnum">{f.rooms.filter((r) => r.confirmed).length}/{f.rooms.length} rooms confirmed</span>
+                  {prog[f.id] !== undefined ? <span className="pl-prog" aria-label="Being created"><i style={{ width: `${prog[f.id]}%` }} /></span>
+                    : serr[f.id] ? <span className="pl-chip err">Error</span>
+                    : f.studio ? <span className="pl-chip ok">Ready · 2D and 3D</span> : null}
+                </span>
               </button>
               <button
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center border border-transparent text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-err hover:border-err transition-all"
@@ -210,26 +256,39 @@ export default function PlansWorkspace({ id }: { id: string }) {
             <div className="col-span-12 xl:col-span-8">
               <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
                 <div className="inline-flex border border-line-strong overflow-hidden" style={{ borderRadius: 4 }} role="group" aria-label="View">
-                  {([["orig", "Original"], ["2d", "Edit plan"], ["top", "2D"], ["doll", "3D"], ["3d", "Walk-through"], ["bld", "Building"]] as const).filter(([v]) => v !== "bld" || hasUnits).map(([v, l]) => (
+                  {([["plan", "Plan"], ["s3d", "3D"], ["2d", "Edit rooms"], ["top", "Furnished 2D"], ["doll", "Dollhouse"], ["3d", "Walk-through"], ["bld", "Building"]] as const).filter(([v]) => v !== "bld" || hasUnits).map(([v, l]) => (
                     <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className={`h-8 px-4 text-[13px] transition-colors ${view === v ? "bg-ink text-white" : "bg-surface hover:bg-sunken"}`}>{l}</button>
                   ))}
                 </div>
                 <div className="flex gap-2 ml-auto">
                   {view === "2d" ? <button className="btn btn-sm" onClick={exportSvg}>SVG</button> : null}
-                  {view !== "orig" ? <button className="btn btn-sm" onClick={exportPng}>Download PNG</button> : null}
+                  {view === "plan" && plan.studio ? <a className="btn btn-sm" href={plan.studio.clean} download={`${fileBase}-plan.png`}>Download PNG</a> : view !== "orig" && view !== "plan" ? <button className="btn btn-sm" onClick={exportPng}>Download PNG</button> : null}
                 </div>
-                {view !== "orig" && view !== "bld" ? <label className="text-[13px] flex items-center gap-2"><input type="checkbox" checked={furn} onChange={(e) => setFurn(e.target.checked)} className="accent-[var(--accent)]" />Furniture</label> : null}
+                {view !== "orig" && view !== "bld" && view !== "plan" && view !== "s3d" ? <label className="text-[13px] flex items-center gap-2"><input type="checkbox" checked={furn} onChange={(e) => setFurn(e.target.checked)} className="accent-[var(--accent)]" />Furniture</label> : null}
                 {view === "2d" ? <label className="text-[13px] flex items-center gap-2"><input type="checkbox" checked={underlay} onChange={(e) => setUnderlay(e.target.checked)} className="accent-[var(--accent)]" />Original as underlay</label> : null}
               </div>
               <div ref={stage} className="panel h-[560px] p-3 settle" key={plan.id + view}>
-                {view === "orig" ? <img src={plan.image} alt={plan.name} className="w-full h-full object-contain" />
+                {view === "plan" || view === "s3d" ? (
+                  prog[plan.id] !== undefined ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-3 relative overflow-hidden">
+                      <div className="absolute inset-x-0 top-0 h-full pointer-events-none" style={{ background: "linear-gradient(to bottom, transparent 46%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, transparent 54%)", animation: "scan 1.2s linear infinite" }} />
+                      <div className="font-medium">Finding the walls · drawing 2D and 3D</div>
+                      <span className="pl-prog wide"><i style={{ width: `${prog[plan.id]}%` }} /></span>
+                    </div>
+                  ) : serr[plan.id] ? (
+                    <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-6"><b>{serr[plan.id]}</b><button className="btn btn-sm" onClick={() => runStudio(plan)}>Generate again</button></div>
+                  ) : !plan.studio ? <div className="h-full flex items-center justify-center text-muted">Preparing …</div>
+                  : view === "plan" ? <div className="h-full flex items-center justify-center"><BeforeAfter plan={plan} /></div>
+                  : <Studio3D studio={plan.studio} />
+                )
+                  : view === "orig" ? <img src={plan.image} alt={plan.name} className="w-full h-full object-contain" />
                   : view === "2d" ? <Plan2D plan={plan} mode="edit" furniture={furn} onFurniture={setFurniture} piece={piece} onPiece={setPiece} showImage={underlay} selected={sel} onSelect={setSel} onChange={setRooms} colorFor={(r) => groupColor(groupOf(plan, r.group), groupsOf(plan)[groupOf(plan, r.group)]?.common)} />
                   : view === "bld" ? <Building3D project={p} accent={p.accent} />
                   : view === "top" || view === "doll" ? <Plan3D plan={plan} furniture={furn} look={view === "top" ? "top" : "dollhouse"} exportRef={hires} walkable={false} selected={sel} onSelect={setSel} accent={p.accent} />
                   : <Plan3D plan={plan} furniture={furn} onCapture={addView} onFurniture={setFurniture} piece={piece} onPiece={setPiece} selected={sel} onSelect={setSel} accent={p.accent} />}
               </div>
               <p className="text-[12px] text-muted mt-2">
-                {view === "top" ? "The furnished plan from above. Download PNG saves it at 3000 × 2000 px." : view === "doll" ? "Walls cut at 1.15 m, doors open, seen from 60° above. Drag to turn, scroll to zoom; Download PNG saves 3000 × 2000 px." : view === "2d" ? "Click a room, then drag its points (they snap to right angles). Double-click an edge to insert a point, right-click to delete one. Furniture can be dragged." : view === "3d" ? "Drag to rotate, scroll to zoom. Walls, door lintels and windows come from the detected plan." : view === "bld" ? "The floor plan stacked over every floor it applies to. Each volume is one apartment from the unit list; grey ones are let or sold." : "First page of the uploaded file."}
+                {view === "plan" ? "Drag the handle to compare the architect’s plan with the result. Text, dimension lines and hatching are removed; walls and floor are redrawn." : view === "s3d" ? "Drag to rotate · scroll to zoom. The walls come from the plan, 2.5 m high." : view === "top" ? "The furnished plan from above. Download PNG saves it at 3000 × 2000 px." : view === "doll" ? "Walls cut at 1.15 m, doors open, seen from 60° above. Drag to turn, scroll to zoom; Download PNG saves 3000 × 2000 px." : view === "2d" ? "Click a room, then drag its points (they snap to right angles). Double-click an edge to insert a point, right-click to delete one. Furniture can be dragged." : view === "3d" ? "Drag to rotate, scroll to zoom. Walls, door lintels and windows come from the detected plan." : view === "bld" ? "The floor plan stacked over every floor it applies to. Each volume is one apartment from the unit list; grey ones are let or sold." : "First page of the uploaded file."}
               </p>
               {view === "3d" ? (
                 <div className="shots">
@@ -291,6 +350,14 @@ export default function PlansWorkspace({ id }: { id: string }) {
             </div>
             <div className="col-span-12 xl:col-span-4">
               <input className="input font-medium" value={plan.name} onChange={(e) => patch((f) => ({ ...f, name: e.target.value }))} aria-label="Floor plan name" />
+              <div className="panel p-3 mt-3 grid gap-2">
+                <span className="label !mb-0">Floor</span>
+                <select className="select !h-8 text-[13px]" value={plan.studio?.floor ?? "Eiche hell"} disabled={prog[plan.id] !== undefined} onChange={(e) => runStudio(plan, plan.studio?.variant ?? 0, e.target.value as FloorKey)} aria-label="Floor">
+                  {(Object.keys(FLOORS) as FloorKey[]).map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+                <button className="btn btn-sm" disabled={prog[plan.id] !== undefined} onClick={() => runStudio(plan)} title="Reads the walls again with different settings">{prog[plan.id] !== undefined ? "Creating …" : "Generate again"}</button>
+                <small className="text-muted text-[12px]">{plan.studio ? `Variant ${plan.studio.variant + 1} of 3 · free` : "The plan is being read."}</small>
+              </div>
               <div className="text-[12px] text-muted mt-2">{SCALE[plan.scaleSource]}</div>
               <div className="flex items-center justify-between mt-5 mb-2">
                 <h2 className="font-semibold">Rooms <span className="text-muted font-normal tnum">{confirmed}/{plan.rooms.length}</span></h2>
