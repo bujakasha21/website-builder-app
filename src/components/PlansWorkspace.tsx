@@ -52,7 +52,7 @@ export default function PlansWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [current, setCurrent] = useState<string | null>(null);
-  const [view, setView] = useState<"plan" | "s3d" | "orig" | "2d" | "top" | "doll" | "3d" | "bld">("plan");
+  const [view, setView] = useState<"plan" | "s3d" | "orig" | "2d" | "top" | "doll" | "3d" | "bld">("doll");
   // the Studio way: per plan a progress bar while it is read, then ready or an error; "Generate again" tries the next variant
   const [prog, setProg] = useState<Record<string, number>>({});
   const [serr, setSerr] = useState<Record<string, string>>({});
@@ -100,7 +100,7 @@ export default function PlansWorkspace({ id }: { id: string }) {
       if (!fp.rooms.length) setError(`No enclosed rooms were found in “${label}”. Plans with solid, filled walls work best.`);
       updateProject(p.id, (x) => ({ ...x, floorPlans: [...x.floorPlans, fp] }));
       setCurrent(fp.id);
-      setView("plan");
+      setView("doll"); // the main result: dollhouse 3D; the clean Studio plan is drawn alongside in the background
       setSel(null);
       setBusy(null);
       await runStudio(fp, 0);
@@ -256,7 +256,7 @@ export default function PlansWorkspace({ id }: { id: string }) {
             <div className="col-span-12 xl:col-span-8">
               <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
                 <div className="inline-flex border border-line-strong overflow-hidden" style={{ borderRadius: 4 }} role="group" aria-label="View">
-                  {([["plan", "Plan"], ["s3d", "3D"], ["2d", "Edit rooms"], ["top", "Furnished 2D"], ["doll", "Dollhouse"], ["3d", "Walk-through"], ["bld", "Building"]] as const).filter(([v]) => v !== "bld" || hasUnits).map(([v, l]) => (
+                  {([["top", "2D"], ["doll", "3D"], ["plan", "Clean plan"], ["s3d", "Plain 3D"], ["2d", "Edit rooms"], ["3d", "Walk-through"], ["bld", "Building"]] as const).filter(([v]) => v !== "bld" || hasUnits).map(([v, l]) => (
                     <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className={`h-8 px-4 text-[13px] transition-colors ${view === v ? "bg-ink text-white" : "bg-surface hover:bg-sunken"}`}>{l}</button>
                   ))}
                 </div>
