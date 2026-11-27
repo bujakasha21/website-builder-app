@@ -206,26 +206,41 @@ export function TravelTimes({ items }: { items?: { place: string; mode: string; 
 }
 
 // ── footer ───────────────────────────────────────────────────────
-export function Footer({ company, imprintHref, privacyHref, logos, logosTitle, instagram, linkedin, facebook, puck }: P) {
+const FOOT_LOGO: Record<string, number> = { s: 28, m: 40, l: 56, xl: 76 };
+/** "{year}" and "{company}" in the copyright line are filled in */
+const fill = (t: string, company: string) => t.replace(/\{year\}/g, String(new Date().getFullYear())).replace(/\{company\}/g, company);
+
+export function Footer({ company, imprintHref, privacyHref, logos, logosTitle, instagram, linkedin, facebook, layout, showLogo, logoSize, copyright, imprintLabel, privacyLabel, puck }: P) {
   const legal = useLegalHref(puck);
+  const p = useProject(puck?.metadata?.projectId) ?? null;
   const marks: { src: string; caption?: string }[] = (logos ?? []).filter((l: any) => l?.src);
   const social = [["Instagram", instagram], ["LinkedIn", linkedin], ["Facebook", facebook]].filter(([, h]) => String(h ?? "").trim());
+  const lay: string = layout ?? "split";
+  const size = FOOT_LOGO[logoSize ?? "m"] ?? 40;
+  const logo = showLogo === "yes" && p?.logo ? <img className={`foot-logo ${p.logoOnDark ? "on-dark" : ""}`} src={p.logo} alt={company || p.name} style={{ height: size }} /> : null;
+  const copy = <span className="foot-copy">{fill(copyright || "© {year} {company}", company || p?.name || "")}</span>;
+  const links = (
+    <nav>
+      {social.map(([n, h]) => <a key={n} href={h} target="_blank" rel="noreferrer">{n}</a>)}
+      <a href={legal(imprintHref, "imprint")}>{imprintLabel || "Imprint"}</a>
+      <a href={legal(privacyHref, "privacy")}>{privacyLabel || "Privacy"}</a>
+    </nav>
+  );
   return (
-    <footer>
+    <footer className={`foot-${lay}`} style={{ ["--foot-logo" as string]: `${size}px` }}>
       {marks.length ? (
         <div className="wrap foot-logos">
           {logosTitle ? <span className="foot-cap">{logosTitle}</span> : null}
           <div>{marks.map((l, k) => <img key={k} src={l.src} alt={l.caption || "Partner"} />)}</div>
         </div>
       ) : null}
-      <div className="wrap">
-        <span>© {new Date().getFullYear()} {company}</span>
-        <nav>
-          {social.map(([n, h]) => <a key={n} href={h} target="_blank" rel="noreferrer">{n}</a>)}
-          <a href={legal(imprintHref, "imprint")}>Imprint</a>
-          <a href={legal(privacyHref, "privacy")}>Privacy</a>
-        </nav>
-      </div>
+      {lay === "three" ? (
+        <div className="wrap foot-row"><div className="foot-l">{logo}</div>{copy}<div className="foot-r">{links}</div></div>
+      ) : lay === "centered" ? (
+        <div className="wrap foot-row">{logo}{copy}{links}</div>
+      ) : (
+        <div className="wrap foot-row"><div className="foot-l">{logo}{copy}</div>{links}</div>
+      )}
     </footer>
   );
 }

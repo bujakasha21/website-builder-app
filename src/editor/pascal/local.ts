@@ -125,6 +125,41 @@ export const localProvider: PascalProvider = {
       const value = hex ?? COLOURS[colour!];
       return { reply: `${cap(colour ?? value)} it is. Buttons, links and highlights will use it.`, changes: [`Accent colour: ${value}`], ops: [{ op: "setThemeTokens", tokens: { primary: value } }] };
     }
+    // ── footer: logo size, copyright line, where the legal links go ──
+    if (/footer|copyright|rights reserved|impressum|imprint|datenschutz|privacy link/.test(t) && !/^(remove|delete|move|put|shift|add)\b/.test(t)) {
+      const f = firstOf("Footer");
+      if (!f) return { reply: "There is no footer on this page yet. Shall I add one at the bottom?", examples: ["Add a footer"] };
+      const cur = f.props as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      const lines: string[] = [];
+      const SIZES = ["s", "m", "l", "xl"], SIZE_NAME: Record<string, string> = { s: "small", m: "medium", l: "large", xl: "extra large" };
+      if (/logo/.test(t)) {
+        const now = String(cur.logoSize ?? "m");
+        const step = /bigger|larger|increase|bigger logo|enlarge|vergr/.test(t) ? 1 : /smaller|decrease|reduce|verklein/.test(t) ? -1 : 0;
+        if (cur.showLogo !== "yes") { patch.showLogo = "yes"; lines.push("Site logo shown in the footer"); }
+        if (step) { const next = SIZES[Math.max(0, Math.min(3, SIZES.indexOf(now) + step))]; if (next !== now) { patch.logoSize = next; lines.push(`Logo size: ${SIZE_NAME[now]} → ${SIZE_NAME[next]}`); } }
+        if (!p.logo) lines.push("(No logo uploaded yet – add it on the project page and it appears here)");
+      }
+      if (/copyright|rights reserved|©/.test(t)) {
+        const text = /all rights reserved/.test(t) || !String(cur.copyright ?? "").includes("rights") ? "© {year} {company}. All rights reserved." : String(cur.copyright);
+        if (text !== cur.copyright) { patch.copyright = text; lines.push("Copyright line: “© year company. All rights reserved.”"); }
+      }
+      if (/\b(imprint|privacy)\b/.test(t) && !/impressum|datenschutz/.test(t)) {
+        if (cur.imprintLabel !== "Imprint") { patch.imprintLabel = "Imprint"; lines.push("Link text: Imprint"); }
+        if (cur.privacyLabel !== "Privacy") { patch.privacyLabel = "Privacy"; lines.push("Link text: Privacy"); }
+      }
+      if (/impressum|datenschutz/.test(t)) {
+        if (cur.imprintLabel !== "Impressum") { patch.imprintLabel = "Impressum"; lines.push("Link text: Impressum"); }
+        if (cur.privacyLabel !== "Datenschutz") { patch.privacyLabel = "Datenschutz"; lines.push("Link text: Datenschutz"); }
+      }
+      // where things go: copyright in the middle (and links right) = three parts; everything centred = centred
+      const middle = /(cent(er|re)|middle|mitte)/.test(t);
+      const right = /\bright\b|rechts/.test(t);
+      const layout = /two parts|two columns|left and right/.test(t) ? "split" : /three parts|three columns/.test(t) ? "three" : /everything|all of it|whole footer|all cent/.test(t) && middle ? "centered" : middle || (right && /logo|copyright/.test(t)) ? "three" : null;
+      if (layout && layout !== (cur.layout ?? "split")) { patch.layout = layout; lines.push(layout === "three" ? "Layout: logo left, copyright in the middle, links right" : layout === "split" ? "Layout: two parts (logo and copyright left, links right)" : "Layout: everything centred"); }
+      if (!Object.keys(patch).length) return { reply: "The footer already looks like that – nothing to change." };
+      return { reply: "Here is how I will change the footer.", changes: lines, apply: (x) => setProps(x, String(f.props.id), patch), confirmLabel: "Do it" };
+    }
     if (/colou?r/.test(t)) return cannot("I did not catch which colour.", ["Make it blue", "Make it green", "Make it #1F4E8C"]);
 
     // ── title, text or button wording ──

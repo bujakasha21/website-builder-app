@@ -1,17 +1,25 @@
 "use client";
 import type { Data } from "@puckeditor/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { pascal, STARTERS } from "@/editor/pascal/local";
+import { pascal as rulesPascal, STARTERS } from "@/editor/pascal/local";
+import { claudeEditAvailable, claudePascal } from "@/editor/pascal/claude";
 import { blocksOf, progress, suggestFor } from "@/editor/pascal/rules";
 import type { Issue, Proposal } from "@/editor/pascal/types";
 import { getProject } from "@/lib/store";
 import { commit, tagNextEdit } from "@/doc/commit";
 import { describeDataDiff } from "@/doc/diff";
+import { config } from "@/editor/config";
 import type { Project } from "@/lib/types";
 
 interface Snapshot { data?: Data; accent?: string; locales?: string[] }
 interface Msg { id: number; from: "pascal" | "user"; text: string; proposal?: Proposal; state?: "open" | "done" | "declined" | "undone" | "nochange" | "failed"; undo?: Snapshot; /** what really changed, read back after applying */ verified?: string[]; error?: string }
 interface Outcome { undo?: Snapshot; verified: string[]; error?: string; touched: boolean }
+
+/** names as the editor shows them ("Logo size", not "logoSize"), so the read-back list is readable */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const comps = config.components as Record<string, any>;
+const sectionName = (type: string) => comps[type]?.label ?? type;
+const fieldName = (type: string, key: string) => String(comps[type]?.fields?.[key]?.label ?? key).split("||")[0];
 
 const changesSomething = (p: Proposal) => !!(p.apply || p.ops?.length);
 const needsConfirm = (p: Proposal) => !!(p.apply || p.ops?.length || p.go || p.open);
@@ -34,6 +42,9 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
   const end = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
 
+  // Claude when the server has a key (editor only); the rules otherwise, and the header says which one answers
+  const [pascal, setPascal] = useState(rulesPascal);
+  useEffect(() => { if (mode === "editor") claudeEditAvailable().then((ok) => { if (ok) setPascal(claudePascal); }); }, [mode]);
   const key = `sb-pascal-${mode}`;
   useEffect(() => { try { const v = localStorage.getItem(key); if (v) setOpen(v === "open"); } catch {} }, [key]);
   const toggle = (v: boolean) => { setOpen(v); try { localStorage.setItem(key, v ? "open" : "closed"); } catch {} };
@@ -56,7 +67,7 @@ export default function PascalBar({ mode, project, data, selectedId, onData, onO
     const label = pr.changes?.[0];
     if (pr.apply && data && onData && project) {
       const after = pr.apply(data);
-      const diff = describeDataDiff(data, after);
+      const diff = describeDataDiff(data, after, sectionName, fieldName);
       if (diff.length) { tagNextEdit(project.id, { source: "ai", label: label ?? diff[0] }); onData(after); verified.push(...diff); }
     }
     if (pr.ops?.length && project) {

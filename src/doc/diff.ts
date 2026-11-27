@@ -10,7 +10,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * What really changed between two versions of a page, in plain words.
  * Used for history labels and for the "Changes" list after Pascal acts, so nothing is claimed that did not happen.
  */
-export function describeDataDiff(before: Data | null | undefined, after: Data | null | undefined, name: (type: string) => string = humanize): string[] {
+export function describeDataDiff(before: Data | null | undefined, after: Data | null | undefined, name: (type: string) => string = humanize, field: (type: string, key: string) => string = (_t, k) => k): string[] {
   const out: string[] = [];
   const a = blocks(before), b = blocks(after);
   const ia = new Map(a.map((x) => [x.props.id as string, x]));
@@ -24,7 +24,7 @@ export function describeDataDiff(before: Data | null | undefined, after: Data | 
     const old = ia.get(x.props.id as string);
     if (!old) continue;
     const keys = [...new Set([...Object.keys(old.props), ...Object.keys(x.props)])].filter((k) => k !== "id" && !same(old.props[k], x.props[k]));
-    if (keys.length) out.push(`${name(x.type)}: ${keys.join(", ")}`);
+    if (keys.length) out.push(`${name(x.type)}: ${keys.map((k) => field(x.type, k)).join(", ")}`);
   }
   const ra = (before?.root?.props ?? {}) as Record<string, unknown>, rb = (after?.root?.props ?? {}) as Record<string, unknown>;
   const rk = [...new Set([...Object.keys(ra), ...Object.keys(rb)])].filter((k) => !same(ra[k], rb[k]));

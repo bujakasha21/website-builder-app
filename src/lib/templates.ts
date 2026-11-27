@@ -133,7 +133,7 @@ function starter(p: Base, template: TemplateId) {
     title: "Your contacts",
     people: [{ name: "First Last", role: rent ? "Lettings" : "Sales", phone: "", email: "" }],
   });
-  const footer = block("Footer", { company: p.name, imprintHref: "/imprint", privacyHref: "/privacy" });
+  const footer = block("Footer", { company: p.name, layout: "split", showLogo: "yes", logoSize: "m", copyright: "© {year} {company}. All rights reserved.", imprintLabel: "Imprint", privacyLabel: "Privacy", imprintHref: "/imprint", privacyHref: "/privacy" });
 
   return { tpl, header, hero, advantages, textImage, text, factsBlock, finder, waitlist, gallery, location, viewing, contact, contacts, footer };
 }

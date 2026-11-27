@@ -23,7 +23,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
       {p === undefined ? <Loading /> : p === null ? (
         <div className="p-10">Project not found. <Link className="underline" href="/">Back to projects</Link></div>
       ) : (
-        <main className="flex-1 w-full max-w-[1320px] mx-auto px-6 py-8">
+        <main className="flex-1 w-full max-w-[1320px] mx-auto px-6 py-8 p-main">
           <div className="flex items-end justify-between gap-6 flex-wrap">
             <div>
               <div className="eyebrow">{p.type === "rent" ? "For rent" : "For sale"} · {p.zip} {p.city}</div>
@@ -34,7 +34,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
               <Link className="btn btn-primary" href={`/edit/${p.id}`}>Open editor</Link>
             </div>
           </div>
-          <nav className="flex gap-6 border-b border-line mt-6" aria-label="Project">
+          <nav className="flex gap-6 border-b border-line mt-6 p-tabs" aria-label="Project">
             {tabs.map(([href, label]) => (
               <Link key={href} href={href} aria-current={path === href ? "page" : undefined} className={`pb-3 -mb-px border-b-2 text-[14px] transition-colors ${path === href ? "border-ink font-medium" : "border-transparent text-muted hover:text-ink"}`}>{label}</Link>
             ))}

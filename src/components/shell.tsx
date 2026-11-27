@@ -14,7 +14,7 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
       </Link>
 <nav className="app-topnav flex items-center gap-5 text-[14px]" aria-label="Main"><Link href="/" className="text-muted hover:text-ink transition-colors">Home</Link><Link href="/websites" className="text-muted hover:text-ink transition-colors">Websites</Link><Link href="/studio" className="text-muted hover:text-ink transition-colors">Floor plans</Link><Link href="/brochures" className="text-muted hover:text-ink transition-colors">Brochures</Link></nav>
       <div className="flex-1 flex items-center gap-4">{children}</div>
-      <span className="text-muted text-xs">EN</span>
+      <span className="text-muted text-xs app-topbar-lang">EN</span>
       <span className="w-7 h-7 flex items-center justify-center text-xs font-semibold" style={{ borderRadius: "50%", background: "var(--accent)", color: "var(--accent-ink)" }} title="Demo account">DB</span>
     </header>
   );
