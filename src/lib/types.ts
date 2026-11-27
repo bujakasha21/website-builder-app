@@ -100,6 +100,8 @@ export interface FloorPlan {
   reader?: "detector" | "claude";
   /** rooms the owner furnished by hand (room id → pieces); rooms without an entry are furnished automatically */
   furniture?: Record<string, { id: string; type: string; s?: number; x: number; z: number; rot: number }[]>;
+  /** the plan read the colleague's Studio way (src/lib/floorplan/studio.ts): clean 2D picture and a wall/floor grid for 3D */
+  studio?: { clean: string; variant: number; floor: string; grid: { gw: number; gh: number; walls: number[][]; floors: number[][] }; mpp: number; crop: [number, number, number, number]; size: [number, number]; at: number };
 }
 
 export interface Lead {
