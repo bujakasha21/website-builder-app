@@ -1,7 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element, @typescript-eslint/no-explicit-any */
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import BuildLoader, { firstScreen } from "@/components/BuildLoader";
 import { IsometryView } from "@/components/Isometry";
 import Plan2D from "@/components/plan/Plan2D";
 import { Loading } from "@/components/shell";
@@ -18,7 +20,12 @@ const money = (n?: number) => (n ? chf(n).replace("CHF ", "") + ".–" : "–");
 export default function Brochure() {
   const { id } = useParams<{ id: string }>();
   const p = useProject(id);
-  if (p === undefined) return <Loading />;
+  const router = useRouter();
+  // coming from "Make a brochure": the curtain while the pages are laid out (read after mount, no hydration mismatch)
+  const [making, setMaking] = useState(false);
+  useEffect(() => { if (new URLSearchParams(location.search).get("make") === "1") setMaking(true); }, []);
+  const curtain = making ? <BuildLoader ready={!!p} minMs={4000} title="Laying out your brochure" lines={["Sorting the apartments …", "Placing the floor plans …", "Setting the cover …", "Lining up the pages …"]} own={p ? { data: firstScreen(p.draft), accent: p.accent, name: p.name, projectId: p.id } : undefined} onDone={() => { setMaking(false); router.replace(`/brochure/${id}`); }} /> : null;
+  if (p === undefined) return <>{curtain}<Loading /></>;
   if (p === null) return <div className="p-10">Project not found. <Link className="underline" href="/brochures">Back</Link></div>;
 
   const block = (type: string): Record<string, any> | undefined => (p.draft.content as any[]).find((c) => c.type === type)?.props;
@@ -130,6 +137,7 @@ export default function Brochure() {
 
   return (
     <div className="brochure">
+      {curtain}
       <div className="b-bar">
         <Link href="/brochures" className="btn btn-sm">← Brochures</Link>
         <Link href="/" className="btn btn-sm">Dashboard</Link>

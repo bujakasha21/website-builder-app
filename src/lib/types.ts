@@ -64,6 +64,9 @@ export interface PlanGroup {
   outline?: Pt[]; // footprint, normalized
 }
 
+/** a door leaf read from the plan: hinge jamb, the opposite jamb (where the closed leaf ends) and a point in the room it swings into; normalized coords */
+export interface PlanDoor { hinge: Pt; tip: Pt; into: Pt; glass?: boolean }
+
 /** wall rect in normalized coords: x, y, w, h, kind (1 wall, 2 door opening, 3 window) */
 export type WallRect = [number, number, number, number, 1 | 2 | 3];
 
@@ -89,6 +92,12 @@ export interface FloorPlan {
   floors?: number[];
   /** saved camera views of this plan: the plain 3D view, and the rendered photo once an image model made one */
   views?: PlanView[];
+  /** door leaves with their swing, when the plan was read by Claude; without them doors open a standard way */
+  doors?: PlanDoor[];
+  /** built-in fittings read from the plan (shower, WC, kitchen run, washer …): room id → pieces, kept when furnishing automatically */
+  fixtures?: Record<string, { id: string; type: string; s?: number; x: number; z: number; rot: number }[]>;
+  /** who read the plan: the wall detector alone, or the detector checked by Claude */
+  reader?: "detector" | "claude";
   /** rooms the owner furnished by hand (room id → pieces); rooms without an entry are furnished automatically */
   furniture?: Record<string, { id: string; type: string; s?: number; x: number; z: number; rot: number }[]>;
 }

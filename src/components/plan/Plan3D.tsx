@@ -23,6 +23,13 @@ interface Props {
   onPiece?: (id: string | null) => void;
   /** lets the owner take pictures while standing in the flat; receives the view and where it was taken */
   onCapture?: (shot: { image: string; x: number; z: number; yaw: number; roomId: string | null }) => void;
+  /**
+   * "model": full-height walls, labels, walk-through. "dollhouse": presentation picture with walls cut at 1.15 m,
+   * dark cut faces, doors open, warm-white ground, camera 60° above the plan. "top": the same cut model straight from above.
+   */
+  look?: "model" | "dollhouse" | "top";
+  /** receives a function that renders the current view at any size (for a print-quality PNG) */
+  exportRef?: { current: ((w: number, h: number) => string) | null };
 }
 
 const WALL_H = 2.5, DOOR_H = 2.05, SILL = 0.9, HEAD = 2.1, EYE = 1.6;
@@ -104,9 +111,12 @@ const fabric = () => texture(128, 0.25, (g, n) => {
   for (let i = 0; i < 1600; i++) { g.fillStyle = r() > 0.5 ? "rgba(255,255,255,0.10)" : "rgba(40,36,30,0.10)"; g.fillRect(r() * n | 0, r() * n | 0, 1, 1); }
 });
 
-export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent = "#1F5C4A", selected, onSelect, furniture = true, walkable = true, onFurniture, piece, onPiece, onCapture }: Props) {
+const CUT_H = 1.15, BG_WARM = 0xf5f2ec;
+const isBalcony = (name: string) => /balkon|terrass|loggia|sitzplatz|balcon|patio/i.test(name);
+
+export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent = "#1F5C4A", selected, onSelect, furniture = true, walkable = true, onFurniture, piece, onPiece, onCapture, look: mode = "model", exportRef }: Props) {
   // the scene is only rebuilt when something it shows changes (rooms, walls, furniture), not when e.g. a picture is saved
-  const sig = JSON.stringify([planProp.id, planProp.metersPerUnit, planProp.walls.length, planProp.rooms.map((r) => [r.id, r.name, r.areaM2, r.confirmed, r.polygon]), planProp.furniture ?? null]);
+  const sig = JSON.stringify([planProp.id, planProp.metersPerUnit, planProp.walls.length, planProp.rooms.map((r) => [r.id, r.name, r.areaM2, r.confirmed, r.polygon]), planProp.furniture ?? null, planProp.doors ?? null, planProp.fixtures ?? null]);
   const plan = useMemo(() => planProp, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -141,6 +151,9 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.92;
+    const cut = mode !== "model";
+    const TOP = cut ? CUT_H : WALL_H;
+    if (cut) { renderer.setClearColor(BG_WARM, 1); renderer.toneMappingExposure = 1.0; }
     el.appendChild(renderer.domElement);
     renderer.domElement.style.display = "block";
 
@@ -161,8 +174,20 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     controls.minDistance = span * 0.4;
     controls.maxDistance = span * 5;
     controls.target.set(0, 0.6, 0);
-    const keep = views.get(plan.id);
-    if (keep) { camera.position.copy(keep.pos); controls.target.copy(keep.target); }
+    const viewKey = plan.id + mode;
+    /** presentation picture: plan orientation (entrance side towards the viewer), the whole flat in frame for this canvas shape */
+    const frameFlat = (aspect: number) => {
+      camera.fov = 26;
+      const deep = mode === "top" ? sizeZ : sizeZ * 0.87 + 0.8;
+      const fit = (Math.max(sizeX / aspect, deep) / 2 / Math.tan(THREE.MathUtils.degToRad(13))) * 1.16;
+      const el = THREE.MathUtils.degToRad(mode === "top" ? 89.99 : 60);
+      camera.position.set(0, fit * Math.sin(el), fit * Math.cos(el));
+      controls.target.set(0, 0, 0);
+    };
+    if (cut) controls.enableRotate = mode !== "top";
+    let framed = false;
+    const keep = views.get(viewKey);
+    if (keep) { camera.position.copy(keep.pos); controls.target.copy(keep.target); framed = true; }
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0xd9d2c6, 0.75);
     scene.add(hemi);
@@ -173,9 +198,9 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     out.normalize();
     const sun = new THREE.DirectionalLight(0xffeccf, 2.6);
     const sunAt = (height: number) => sun.position.set(out.x * span * 1.1 + out.z * span * 0.35, span * height, out.z * span * 1.1 - out.x * span * 0.35);
-    sunAt(1.25);
+    sunAt(cut ? 2.2 : 1.25); // presentation: midday sun, short shadows
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(cut ? 4096 : 2048, cut ? 4096 : 2048);
     const sc = sun.shadow.camera;
     sc.left = -span; sc.right = span; sc.top = span; sc.bottom = -span; sc.far = span * 5;
     sun.shadow.bias = -0.0004;
@@ -184,10 +209,38 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     scene.add(sun);
 
     // slab
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(sizeX + 0.3, 0.2, sizeZ + 0.3), new THREE.MeshStandardMaterial({ color: 0xcfc8bd, roughness: 1 }));
-    slab.position.y = -0.11;
-    slab.receiveShadow = true;
-    scene.add(slab);
+    const SLAB = cut ? 0.28 : 0.2;
+    if (!cut) {
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(sizeX + 0.3, SLAB, sizeZ + 0.3), new THREE.MeshStandardMaterial({ color: 0xcfc8bd, roughness: 1 }));
+      slab.position.y = -SLAB / 2 - 0.01;
+      slab.receiveShadow = true;
+      scene.add(slab);
+    } else {
+      // the cut model stands on its own footprint: rooms and walls, not a rectangle around them
+      const slabMat = new THREE.MeshStandardMaterial({ color: 0xe9e5de, roughness: 1 });
+      const under = (geo: THREE.BufferGeometry) => { const m = new THREE.Mesh(geo, slabMat); m.receiveShadow = true; m.castShadow = true; scene.add(m); };
+      for (const r of (onlyConfirmed ? plan.rooms.filter((q) => q.confirmed) : plan.rooms)) {
+        const g = new THREE.ExtrudeGeometry(new THREE.Shape(r.polygon.map(([x, y]) => new THREE.Vector2(X(x), Z(y)))), { depth: SLAB, bevelEnabled: false });
+        g.rotateX(Math.PI / 2); // like the floors: shape y becomes z, the extrusion points down
+        g.translate(0, -0.006, 0);
+        under(g);
+      }
+      for (const [x, y, w, h] of plan.walls) { const g = new THREE.BoxGeometry(w * mx, SLAB, h * my); g.translate(X(x) + (w * mx) / 2, -SLAB / 2 - 0.006, Z(y) + (h * my) / 2); under(g); }
+    }
+    if (cut) {
+      // the model stands on the page: a soft contact shadow and the sun's shadow on an invisible ground
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(span * 8, span * 8), new THREE.ShadowMaterial({ opacity: 0.12 }));
+      ground.rotation.x = -Math.PI / 2; ground.position.y = -SLAB - 0.011; ground.receiveShadow = true;
+      scene.add(ground);
+      const c = document.createElement("canvas"); c.width = c.height = 256;
+      const g = c.getContext("2d")!, gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+      gr.addColorStop(0, "rgba(60,50,40,0.30)"); gr.addColorStop(0.6, "rgba(60,50,40,0.12)"); gr.addColorStop(1, "rgba(60,50,40,0)");
+      g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
+      const t = new THREE.CanvasTexture(c);
+      const blot = new THREE.Mesh(new THREE.PlaneGeometry(sizeX * 1.45, sizeZ * 1.35), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false }));
+      blot.rotation.x = -Math.PI / 2; blot.position.y = -SLAB - 0.012;
+      scene.add(blot);
+    }
 
     // floors: parquet in living rooms and bedrooms, tiles in bath and kitchen
     const rooms = onlyConfirmed ? plan.rooms.filter((r) => r.confirmed) : plan.rooms;
@@ -203,7 +256,8 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       const shape = new THREE.Shape(r.polygon.map(([x, y]) => new THREE.Vector2(X(x), Z(y))));
       const geo = new THREE.ShapeGeometry(shape);
       geo.rotateX(Math.PI / 2);
-      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: kind === "none" ? null : wet ? texTiles : texParquet, color: kind === "none" ? 0xd9d5cd : 0xffffff, roughness: wet ? 0.32 : 0.58, side: THREE.DoubleSide }));
+      const outside = isBalcony(r.name);
+      const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: outside || wet ? texTiles : kind === "none" ? null : texParquet, color: outside ? 0xc9c6c0 : kind === "none" ? 0xd9d5cd : 0xffffff, roughness: wet ? 0.32 : 0.58, side: THREE.DoubleSide }));
       m.position.y = 0.005;
       m.receiveShadow = true;
       m.userData.id = r.id;
@@ -216,6 +270,7 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       const k = Math.min(1, Math.max(0.45, span / 14));
       s.scale.multiplyScalar(k);
       s.position.set(sx, 0.5, sz);
+      s.visible = !cut; // presentation pictures carry no text
       scene.add(s);
       // a simple ceiling light per room, only seen when walking through
       if (kind !== "none") {
@@ -249,7 +304,7 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     }).catch(() => {});
 
     // walls, lintels, sills, skirting, window frames and glass from the detected rects
-    type Kind = "wall" | "glass" | "trim";
+    type Kind = "wall" | "glass" | "trim" | "cap";
     const boxes: { m: THREE.Matrix4; t: Kind }[] = [];
     const add = (x0: number, z0: number, wx: number, wz: number, y0: number, y1: number, t: Kind) => {
       const m = new THREE.Matrix4();
@@ -257,44 +312,76 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       boxes.push({ m, t });
     };
     const doorMat = new THREE.MeshStandardMaterial({ color: 0xf1ece3, roughness: 0.45 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x5f5f61, roughness: 0.5 });
+    const leafGlass = new THREE.MeshPhysicalMaterial({ color: 0xd4e6ec, roughness: 0.04, transparent: true, opacity: 0.25, depthWrite: false });
+    const LEAF_H = cut ? CUT_H - 0.05 : DOOR_H - 0.07;
+    // doors read from the plan open into the room their arc is drawn in; the rest open a standard way
+    const swung = !!plan.doors?.length;
+    for (const d of plan.doors ?? []) {
+      const hx = X(d.hinge[0]), hz = Z(d.hinge[1]), tx = X(d.tip[0]), tz = Z(d.tip[1]), ix = X(d.into[0]), iz = Z(d.into[1]);
+      const len = Math.hypot(tx - hx, tz - hz);
+      if (len < 0.3) continue;
+      const ux = (tx - hx) / len, uz = (tz - hz) / len;
+      let nx = -uz, nz = ux;
+      if ((ix - hx) * nx + (iz - hz) * nz < 0) { nx = -nx; nz = -nz; }
+      const open = THREE.MathUtils.degToRad(d.glass ? 60 : 72);
+      const dx = ux * Math.cos(open) + nx * Math.sin(open), dz = uz * Math.cos(open) + nz * Math.sin(open);
+      const hinge = new THREE.Group();
+      hinge.position.set(hx, 0.005, hz);
+      hinge.rotation.y = Math.atan2(-dz, dx);
+      const w = len - 0.04;
+      if (d.glass) {
+        for (const [a, b, c, e] of [[0, w, 0, 0.06], [0, w, LEAF_H - 0.06, LEAF_H], [0, 0.06, 0, LEAF_H], [w - 0.06, w, 0, LEAF_H]]) {
+          const f = new THREE.Mesh(new THREE.BoxGeometry(b - a, e - c, 0.05), frameMat); f.position.set((a + b) / 2, (c + e) / 2, 0); f.castShadow = true; hinge.add(f);
+        }
+        const gl = new THREE.Mesh(new THREE.BoxGeometry(w - 0.1, LEAF_H - 0.1, 0.012), leafGlass); gl.position.set(w / 2, LEAF_H / 2, 0); hinge.add(gl);
+      } else {
+        const leaf = new THREE.Mesh(new THREE.BoxGeometry(w, LEAF_H, 0.04), doorMat);
+        leaf.position.set(w / 2, LEAF_H / 2, 0); leaf.castShadow = true; leaf.receiveShadow = true; hinge.add(leaf);
+      }
+      scene.add(hinge);
+    }
     for (const [x, y, w, h, k] of plan.walls) {
       const x0 = X(x), z0 = Z(y), wx = w * mx, wz = h * my;
       const alongX = wx >= wz;
       if (k === 1) {
-        add(x0, z0, wx, wz, 0, WALL_H, "wall");
+        add(x0, z0, wx, wz, 0, TOP, "wall");
+        if (cut) add(x0, z0, wx, wz, TOP, TOP + 0.006, "cap"); // the cut face reads dark, like a section
         add(x0 - 0.012, z0 - 0.012, wx + 0.024, wz + 0.024, 0, 0.08, "trim"); // skirting board
       } else if (k === 2) {
-        add(x0, z0, wx, wz, DOOR_H, WALL_H, "wall");
+        if (!cut) add(x0, z0, wx, wz, DOOR_H, WALL_H, "wall");
         // frame: two jambs and a head, a little proud of the wall
-        const j = 0.05, o = 0.015;
-        if (alongX) { add(x0, z0 - o, j, wz + o * 2, 0, DOOR_H, "trim"); add(x0 + wx - j, z0 - o, j, wz + o * 2, 0, DOOR_H, "trim"); add(x0, z0 - o, wx, wz + o * 2, DOOR_H - j, DOOR_H, "trim"); }
-        else { add(x0 - o, z0, wx + o * 2, j, 0, DOOR_H, "trim"); add(x0 - o, z0 + wz - j, wx + o * 2, j, 0, DOOR_H, "trim"); add(x0 - o, z0, wx + o * 2, wz, DOOR_H - j, DOOR_H, "trim"); }
+        const j = 0.05, o = 0.015, JH = cut ? TOP : DOOR_H;
+        if (alongX) { add(x0, z0 - o, j, wz + o * 2, 0, JH, "trim"); add(x0 + wx - j, z0 - o, j, wz + o * 2, 0, JH, "trim"); if (!cut) add(x0, z0 - o, wx, wz + o * 2, DOOR_H - j, DOOR_H, "trim"); }
+        else { add(x0 - o, z0, wx + o * 2, j, 0, JH, "trim"); add(x0 - o, z0 + wz - j, wx + o * 2, j, 0, JH, "trim"); if (!cut) add(x0 - o, z0, wx + o * 2, wz, DOOR_H - j, DOOR_H, "trim"); }
         // the leaf stands open so every room can be walked into
         const len = (alongX ? wx : wz) - j * 2;
-        if (len > 0.5) {
+        if (len > 0.5 && !swung) {
           const hinge = new THREE.Group();
           hinge.position.set(alongX ? x0 + j : x0 + wx / 2, 0, alongX ? z0 + wz / 2 : z0 + j);
           hinge.rotation.y = (alongX ? 0 : -Math.PI / 2) - 1.36;
-          const leaf = new THREE.Mesh(new THREE.BoxGeometry(len, DOOR_H - j - 0.02, 0.04), doorMat);
-          leaf.position.set(len / 2, (DOOR_H - j) / 2, 0);
+          const lh = cut ? LEAF_H : DOOR_H - j - 0.02;
+          const leaf = new THREE.Mesh(new THREE.BoxGeometry(len, lh, 0.04), doorMat);
+          leaf.position.set(len / 2, lh / 2 + 0.01, 0);
           leaf.castShadow = true; leaf.receiveShadow = true;
           hinge.add(leaf);
           scene.add(hinge);
         }
       } else {
-        add(x0, z0, wx, wz, 0, SILL, "wall");
-        add(x0, z0, wx, wz, HEAD, WALL_H, "wall");
+        const sill = cut ? 0.45 : SILL, head = cut ? TOP : HEAD;
+        add(x0, z0, wx, wz, 0, sill, "wall");
+        if (!cut) add(x0, z0, wx, wz, HEAD, WALL_H, "wall");
         const t = Math.min(wx, wz) * 0.25, f = 0.05, o = 0.02;
         if (alongX) {
-          add(x0, z0 + wz / 2 - t / 2, wx, t, SILL + f, HEAD - f, "glass");
-          add(x0, z0 - o, wx, wz + o * 2, SILL, SILL + f, "trim"); add(x0, z0 + wz * 0.3, wx, wz * 0.4, HEAD - f, HEAD, "trim");
-          add(x0, z0 + wz * 0.3, f, wz * 0.4, SILL, HEAD, "trim"); add(x0 + wx - f, z0 + wz * 0.3, f, wz * 0.4, SILL, HEAD, "trim");
-          if (wx > 1.6) add(x0 + wx / 2 - f / 2, z0 + wz * 0.3, f, wz * 0.4, SILL, HEAD, "trim");
+          add(x0, z0 + wz / 2 - t / 2, wx, t, sill + f, head - f, "glass");
+          add(x0, z0 - o, wx, wz + o * 2, sill, sill + f, "trim"); add(x0, z0 + wz * 0.3, wx, wz * 0.4, head - f, head, "trim");
+          add(x0, z0 + wz * 0.3, f, wz * 0.4, sill, head, "trim"); add(x0 + wx - f, z0 + wz * 0.3, f, wz * 0.4, sill, head, "trim");
+          if (wx > 1.6) add(x0 + wx / 2 - f / 2, z0 + wz * 0.3, f, wz * 0.4, sill, head, "trim");
         } else {
-          add(x0 + wx / 2 - t / 2, z0, t, wz, SILL + f, HEAD - f, "glass");
-          add(x0 - o, z0, wx + o * 2, wz, SILL, SILL + f, "trim"); add(x0 + wx * 0.3, z0, wx * 0.4, wz, HEAD - f, HEAD, "trim");
-          add(x0 + wx * 0.3, z0, wx * 0.4, f, SILL, HEAD, "trim"); add(x0 + wx * 0.3, z0 + wz - f, wx * 0.4, f, SILL, HEAD, "trim");
-          if (wz > 1.6) add(x0 + wx * 0.3, z0 + wz / 2 - f / 2, wx * 0.4, f, SILL, HEAD, "trim");
+          add(x0 + wx / 2 - t / 2, z0, t, wz, sill + f, head - f, "glass");
+          add(x0 - o, z0, wx + o * 2, wz, sill, sill + f, "trim"); add(x0 + wx * 0.3, z0, wx * 0.4, wz, head - f, head, "trim");
+          add(x0 + wx * 0.3, z0, wx * 0.4, f, sill, head, "trim"); add(x0 + wx * 0.3, z0 + wz - f, wx * 0.4, f, sill, head, "trim");
+          if (wz > 1.6) add(x0 + wx * 0.3, z0 + wz / 2 - f / 2, wx * 0.4, f, sill, head, "trim");
         }
       }
     }
@@ -308,7 +395,35 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       im.receiveShadow = t !== "glass";
       scene.add(im);
     };
-    mk("wall", new THREE.MeshStandardMaterial({ color: 0xece8df, roughness: 0.93 })); // matte paint
+    // balconies and terraces: a glass railing on every edge of their outline that has no wall
+    for (const r of rooms) {
+      if (!isBalcony(r.name)) continue;
+      const pts = r.polygon.map(([x, y]) => [X(x), Z(y)] as [number, number]);
+      const near = (px: number, pz: number) => plan.walls.some(([x, y, w, h]) => px > X(x) - 0.3 && px < X(x + w) + 0.3 && pz > Z(y) - 0.3 && pz < Z(y + h) + 0.3);
+      for (let i = 0; i < pts.length; i++) {
+        const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
+        const len = Math.hypot(bx - ax, bz - az);
+        if (len < 0.3) continue;
+        // the railing runs along every stretch of the edge that has no wall next to it
+        const n = Math.max(4, Math.round(len / 0.1)), along = Math.abs(bx - ax) >= Math.abs(bz - az);
+        let run = -1;
+        for (let k = 0; k <= n; k++) {
+          const free = k < n && !near(ax + ((bx - ax) * (k + 0.5)) / n, az + ((bz - az) * (k + 0.5)) / n);
+          if (free && run < 0) run = k;
+          if (!free && run >= 0) {
+            if (k - run >= 2) {
+              const sx = ax + ((bx - ax) * run) / n, sz = az + ((bz - az) * run) / n, ex = ax + ((bx - ax) * k) / n, ez = az + ((bz - az) * k) / n;
+              const x0 = Math.min(sx, ex), z0 = Math.min(sz, ez), wx = along ? Math.abs(ex - sx) : 0.04, wz = along ? 0.04 : Math.abs(ez - sz);
+              add(x0, z0, wx, wz, 0.02, 1.0, "glass");
+              add(x0 - 0.01, z0 - 0.01, wx + 0.02, wz + 0.02, 1.0, 1.05, "cap");
+            }
+            run = -1;
+          }
+        }
+      }
+    }
+    mk("wall", new THREE.MeshStandardMaterial({ color: cut ? 0xf3f0ea : 0xece8df, roughness: 0.93 })); // matte paint
+    mk("cap", new THREE.MeshStandardMaterial({ color: 0x4a4846, roughness: 0.75 }));
     mk("trim", new THREE.MeshStandardMaterial({ color: 0xfbfaf7, roughness: 0.4 }));
     mk("glass", new THREE.MeshPhysicalMaterial({ color: 0xd4e6ec, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2, envMapIntensity: 1.4, depthWrite: false }));
 
@@ -406,9 +521,11 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       dom.style.width = "100%";
       dom.style.height = "100%";
       camera.aspect = w / h;
+      if (cut && !framed) frameFlat(camera.aspect);
       camera.updateProjectionMatrix();
     };
     resize();
+    if (cut) controls.addEventListener("start", () => { framed = true; }); // the owner moved the view: keep it
     const ro = new ResizeObserver(resize);
     ro.observe(el);
     let raf = 0;
@@ -581,6 +698,25 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
     win.addEventListener("pointerup", onUp);
 
     const frame = () => new Promise<void>((r) => win.requestAnimationFrame(() => r()));
+    if (exportRef) exportRef.current = (w, h) => {
+      // render once at the requested size, then put the canvas back the way it was
+      const keepSize = renderer.getSize(new THREE.Vector2()), keepRatio = renderer.getPixelRatio(), keepAspect = camera.aspect;
+      const keepPos = camera.position.clone(), keepTarget = controls.target.clone();
+      renderer.setPixelRatio(1);
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      if (cut && !framed) frameFlat(camera.aspect); // untouched view: frame the flat for the picture's own shape
+      camera.lookAt(controls.target);
+      camera.updateProjectionMatrix();
+      ring.visible = false;
+      renderer.render(scene, camera);
+      const url = dom.toDataURL("image/png");
+      renderer.setPixelRatio(keepRatio);
+      renderer.setSize(keepSize.x, keepSize.y, false);
+      camera.aspect = keepAspect; camera.position.copy(keepPos); controls.target.copy(keepTarget); camera.lookAt(keepTarget); camera.updateProjectionMatrix();
+      choose(chosen);
+      return url;
+    };
     const shot = () => { renderer.render(scene, camera); return dom.toDataURL("image/jpeg", 0.88); };
     walk.current = {
       enter, exit, key: (k, on) => { me.goal = null; if (on) keys.add(k); else keys.delete(k); }, pose: () => ({ x: me.x, z: me.z, yaw: me.yaw }), room: () => me.room, shot,
@@ -642,7 +778,9 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
 
     return () => {
       alive = false;
-      if (!me.on) views.set(plan.id, { pos: camera.position.clone(), target: controls.target.clone() });
+      // presentation views are only remembered once the owner turned them; otherwise they are framed afresh
+      if (!me.on && (!cut || framed)) views.set(viewKey, { pos: camera.position.clone(), target: controls.target.clone() });
+      if (exportRef) exportRef.current = null;
       win.cancelAnimationFrame(raf);
       ro.disconnect();
       win.removeEventListener("keydown", onKey);
@@ -664,7 +802,7 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
       dom.remove();
       sel.current = null;
     };
-  }, [plan, onlyConfirmed, accent, furniture, editable]);
+  }, [plan, onlyConfirmed, accent, furniture, editable, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { sel.current?.set(selected ?? null); }, [selected, plan]);
   useEffect(() => { sel.current?.piece(piece ?? null); }, [piece, plan]);
@@ -711,7 +849,7 @@ export default function Plan3D({ plan: planProp, onlyConfirmed = false, accent =
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", minHeight: 320 }}>
       <div ref={host} style={{ width: "100%", height: "100%" }} aria-label={`3D model ${plan.name}`} />
-      {walkable && list.length ? (
+      {walkable && mode === "model" && list.length ? (
         walking ? (
           <div className="walk-ui">
             <div className="walk-top">

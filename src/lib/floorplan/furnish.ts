@@ -144,7 +144,9 @@ export const CATALOGUE: Record<string, PieceDef> = {
   },
   fridge: { label: "Fridge", kinds: ["kitchen", "living"], size: () => [0.62, 0.64], build: () => [["box", 0, 0, 0.62, 0.64, 0, 1.95, STEEL]] },
   tub: { label: "Bathtub", kinds: ["bath"], size: () => [1.7, 0.76], build: () => [["box", 0, 0, 1.7, 0.76, 0, 0.56, WHITE], ["box", 0.08, 0.08, 1.54, 0.6, 0.5, 0.07, STEEL, { line: true }]] },
-  shower: { label: "Shower", kinds: ["bath"], size: () => [0.9, 0.9], build: () => [["box", 0, 0, 0.9, 0.9, 0, 0.05, WHITE], ["box", 0, 0.87, 0.9, 0.03, 0.05, 1.95, STEEL, { glass: true }], ["round", 0.37, 0.37, 0.16, 0.16, 0.05, 0.01, STEEL, { line: true }]] },
+  shower: { label: "Shower", kinds: ["bath"], s: 0.9, size: (s) => [s, 0.9], build: (s) => [["box", 0, 0, s, 0.9, 0, 0.05, WHITE], ["box", 0, 0.87, Math.min(s, 1.0), 0.03, 0.05, 1.95, STEEL, { glass: true }], ["round", s / 2 - 0.08, 0.37, 0.16, 0.16, 0.05, 0.01, STEEL, { line: true }]] },
+  washer: { label: "Washer and dryer", kinds: ["bath", "hall"], size: () => [0.62, 0.62], build: () => [["box", 0, 0, 0.62, 0.6, 0, 0.85, WHITE], ["box", 0, 0, 0.62, 0.6, 0.86, 0.85, WHITE], ["round", 0.16, 0.58, 0.3, 0.03, 0.28, 0.3, STEEL, { line: true }], ["round", 0.16, 0.58, 0.3, 0.03, 1.14, 0.3, STEEL, { line: true }]] },
+  tall: { label: "Tall kitchen units", kinds: ["kitchen", "living", "hall"], s: 0.62, size: (s) => [s, 0.62], build: (s) => [["box", 0, 0, s, 0.62, 0, 2.1, WHITE], ["box", 0.05, 0.6, s - 0.1, 0.03, 0.9, 0.45, DARK, { line: true }]] },
   toilet: { label: "Toilet", kinds: ["bath", "wc"], size: () => [0.42, 0.68], build: () => [["box", 0.02, 0, 0.38, 0.18, 0, 0.82, WHITE], ["round", 0.03, 0.16, 0.36, 0.5, 0, 0.42, WHITE]] },
   basin: { label: "Washbasin", kinds: ["bath", "wc"], s: 0.65, size: (s) => [s, 0.46], build: (w) => [["box", 0, 0, w, 0.46, 0, 0.85, WHITE], ["round", w * 0.2, 0.08, w * 0.6, 0.3, 0.85, 0.02, STEEL, { line: true }]] },
 };
@@ -278,7 +280,20 @@ export function autoPieces(plan: FloorPlan, room: Room): Piece[] {
 }
 
 /** the pieces of a room: the owner's own arrangement if there is one, otherwise the automatic one */
-export const piecesOf = (plan: FloorPlan, room: Room): Piece[] => plan.furniture?.[room.id] ?? autoPieces(plan, room);
+export function piecesOf(plan: FloorPlan, room: Room): Piece[] {
+  const own = plan.furniture?.[room.id];
+  if (own) return own;
+  const fixed = plan.fixtures?.[room.id];
+  if (!fixed?.length) return autoPieces(plan, room);
+  // fittings drawn on the plan stand where the architect put them; wet rooms and kitchens get nothing else,
+  // other rooms are furnished around them (no second kitchen in an open-plan living room)
+  const kind = kindOf(room.name, room.areaM2);
+  if (kind === "bath" || kind === "wc" || kind === "kitchen") return fixed;
+  const hasKitchen = fixed.some((f) => f.type === "counter" || f.type === "tall");
+  const rects = fixed.map((f) => grow(pieceRect(f), 0.5));
+  return [...fixed, ...autoPieces(plan, room).filter((q) => !(hasKitchen && (q.type === "counter" || q.type === "fridge")) && !rects.some((r) => hit(pieceRect(q), r)))];
+}
+const grow = (r: { x: number; z: number; w: number; d: number }, m: number) => ({ x: r.x - m, z: r.z - m, w: r.w + 2 * m, d: r.d + 2 * m });
 
 /** a sensible free spot for a new piece in a room (the owner then drags it where it belongs) */
 export function newPiece(plan: FloorPlan, room: Room, type: string, existing: Piece[]): Piece {

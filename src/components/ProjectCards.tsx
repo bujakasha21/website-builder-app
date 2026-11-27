@@ -16,7 +16,7 @@ export default function ProjectCards({ projects, action = "open" }: { projects: 
         const free = apts.filter((u) => u.status === "available").length;
         return (
           <div key={p.id} className="panel overflow-hidden relative rise hover:border-ink transition-colors group">
-            <Link href={action === "brochure" ? `/brochure/${p.id}` : `/p/${p.id}`} className="absolute inset-0 z-10" aria-label={action === "brochure" ? `Open brochure for ${p.name}` : `Open ${p.name}`} />
+            <Link href={action === "brochure" ? `/brochure/${p.id}?make=1` : `/p/${p.id}`} className="absolute inset-0 z-10" aria-label={action === "brochure" ? `Open brochure for ${p.name}` : `Open ${p.name}`} />
             {action === "open" ? (
               <button
                 className="absolute top-2 right-2 z-20 w-8 h-8 bg-surface border border-line-strong flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:border-err hover:text-err"
