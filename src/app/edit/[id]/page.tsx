@@ -21,6 +21,7 @@ import HistoryPanel, { UndoRedo } from "@/editor/HistoryPanel";
 import { flag } from "@/lib/flags";
 import { buildSubPage, PAGE_KINDS } from "@/lib/templates";
 import type { Project, SitePage } from "@/lib/types";
+import BuildLoader, { firstScreen } from "@/components/BuildLoader";
 
 const LANG_NAME: Record<string, string> = { "de-CH": "DE", "fr-CH": "FR", "it-CH": "IT", en: "EN" };
 
@@ -237,6 +238,8 @@ export default function Editor() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saved, setSaved] = useState<"saved" | "saving">("saved");
   const [done, setDone] = useState(false);
+  // Publish: the curtain (own site first on the wheel), then the "is live" card
+  const [publishing, setPublishing] = useState<Data | null>(null);
   const [settings, setSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab | undefined>(undefined);
   const openSettings = (tab?: SettingsTab) => { setSettingsTab(tab); setSettings(true); setHistory(false); };
@@ -313,13 +316,14 @@ export default function Editor() {
           });
           updateProject(id, (x) => (main ? x : { ...x, drafts: { ...(x.drafts ?? {}), [cur]: data }, publishedByLocale: { ...(x.publishedByLocale ?? {}), [cur]: data }, publishedAt: Date.now() }));
           saveVersion(id, `Published${main ? "" : ` (${cur})`}`, true);
-          setDone(true);
+          setPublishing(data);
         }}
         overrides={OVERRIDES}
         plugins={PLUGINS}
         viewports={VIEWPORTS}
       />
       {error ? <div className="toast-error" role="alert"><span>Not saved: {error}</span><button className="btn btn-sm btn-ghost" onClick={() => setError(null)} aria-label="Dismiss">×</button></div> : null}
+      {publishing ? <BuildLoader ready minMs={4500} title="Putting your website online" lines={["Checking every page …", "Packing the pictures …", "Connecting the address …", "Switching the lights on …"]} own={{ data: firstScreen(publishing), accent: p.accent, name: p.name, projectId: id }} onDone={() => { setPublishing(null); setDone(true); }} /> : null}
       {done && (
         <div role="dialog" aria-modal aria-label="Published" onClick={() => setDone(false)} style={{ position: "fixed", inset: 0, background: "rgba(28,27,25,0.35)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div className="panel settle" onClick={(e) => e.stopPropagation()} style={{ width: 520, overflow: "hidden" }}>

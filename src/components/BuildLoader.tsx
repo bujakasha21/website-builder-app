@@ -12,25 +12,35 @@ import type { TemplateId } from "@/lib/types";
 const WHEEL: TemplateId[] = ["atelier", "kontrast", "lumen", "t2", "t3", "t5"];
 const NAMES: Partial<Record<TemplateId, string>> = { t2: "Sand", t3: "Cream", t5: "Sage" };
 const POP_MS = 3000;
+/** one full turn of the wheel */
+const TURN_MS = 42000;
 
 const calm = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+export interface LoaderCard { data: Data; accent: string; name: string; projectId?: string }
+
 /** the first screen (menu bar + hero) of a template with a sample building, enough for a card */
-export function heroOf(id: TemplateId): { data: Data; accent: string; name: string } {
+export function heroOf(id: TemplateId): LoaderCard {
   const t = templateOf(id)!;
   const page = buildPage({ name: "Wohnen am Park", address: "Parkstrasse 12", zip: "8008", city: "Zürich", type: "rent", units: [], floorPlans: [], heroImage: placeholder("exterior", t.accent) }, id);
-  const content = (page.content as { type: string }[]).filter((c) => c.type === "Header" || c.type === "Hero");
-  return { data: { ...page, content } as Data, accent: t.accent, name: NAMES[id] ?? t.name };
+  return { data: firstScreen(page), accent: t.accent, name: NAMES[id] ?? t.name };
 }
+/** menu bar and hero of any page: a site of the person's own can ride on the wheel too */
+export const firstScreen = (page: Data): Data => ({ ...page, content: (page.content as { type: string }[]).filter((c) => c.type === "Header" || c.type === "Hero") } as Data);
 
 /**
- * The curtain while Pascal builds: six templates turn on a big wheel whose top edge shows at the bottom of the
- * screen; every 3 s one of them jumps out as a card, spinning around its own axis, and lands in the middle.
- * A progress line runs on top. It stays at least `minMs` (5 s), and it finishes only once `ready` is true, so a
- * slow build never shows a full bar.
+ * The curtain while Pascal works: six cards turn on a big wheel whose top edge shows at the bottom of the screen
+ * (they overlap; the one nearest the top is in front); every 3 s one of them jumps out, spinning around its own
+ * axis, and lands in the middle. A progress line runs on top. It stays at least `minMs`, and it finishes only once
+ * `ready` is true, so a slow job never shows a full bar.
+ * `own` puts the person's own site on the wheel and pops it out first; `first` pops that template first.
  */
-export default function BuildLoader({ ready, onDone, title = "Pascal is building your website", lines, minMs = 5000 }: { ready: boolean; onDone?: () => void; title?: string; lines: string[]; minMs?: number }) {
-  const cards = useMemo(() => WHEEL.map(heroOf), []);
+export default function BuildLoader({ ready, onDone, title = "Pascal is building your website", lines, minMs = 5000, own, first }: { ready: boolean; onDone?: () => void; title?: string; lines: string[]; minMs?: number; own?: LoaderCard; first?: TemplateId }) {
+  const cards = useMemo(() => {
+    const order = first && WHEEL.includes(first) ? [first, ...WHEEL.filter((x) => x !== first)] : first ? [first, ...WHEEL.slice(0, 5)] : WHEEL;
+    const list = order.map(heroOf);
+    return own ? [own, ...list.slice(0, 5)] : list;
+  }, [own, first]);
   const t0 = useRef(0);
   const [pct, setPct] = useState(0);
   const [pop, setPop] = useState(0);
@@ -38,6 +48,7 @@ export default function BuildLoader({ ready, onDone, title = "Pascal is building
   const [out, setOut] = useState(false);
   const doneRef = useRef(onDone);
   useEffect(() => { doneRef.current = onDone; }, [onDone]);
+  const [still] = useState(calm);
 
   // the bar creeps towards 92 % while the work runs, then fills once the work is done and the minimum time is up
   useEffect(() => {
@@ -65,7 +76,29 @@ export default function BuildLoader({ ready, onDone, title = "Pascal is building
     return () => { clearInterval(p); clearInterval(l); };
   }, []);
 
-  const still = calm();
+  // the wheel turns in JS so each card can be stacked by how close it is to the top (front) while they overlap
+  const spokes = useRef<(HTMLDivElement | null)[]>([]);
+  const n = cards.length * 2;
+  useEffect(() => {
+    let raf = 0;
+    const start = performance.now();
+    const place = (t: number) => {
+      const R = innerWidth <= 760 ? 300 : innerWidth <= 1100 ? 470 : 560;
+      const base = still ? 0 : -((t - start) / TURN_MS) * 360;
+      spokes.current.forEach((el, i) => {
+        if (!el) return;
+        const a = base + (360 / n) * i;
+        const rad = (a * Math.PI) / 180;
+        const c = Math.cos(rad);
+        el.style.transform = `translate(${Math.sin(rad) * R}px, ${-c * R}px) rotate(${a}deg) scale(${0.84 + 0.16 * Math.max(0, c)})`;
+        el.style.zIndex = String(Math.round(100 + c * 100));
+      });
+      if (!still) raf = requestAnimationFrame(place);
+    };
+    raf = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(raf);
+  }, [n, still]);
+
   const now = pop % cards.length;
   const shown = cards[now];
   // straight into <body>: no sticky bar or transformed parent of the page can cover the curtain
@@ -80,17 +113,17 @@ export default function BuildLoader({ ready, onDone, title = "Pascal is building
 
       <div className="bl-stage" aria-hidden>
         <div key={pop} className="bl-pop">
-          <div className="bl-card big"><SitePreview data={shown.data} projectId="__loader" accent={shown.accent} width={440} height={270} /></div>
+          <div className="bl-card big"><SitePreview data={shown.data} projectId={shown.projectId ?? "__loader"} accent={shown.accent} width={520} height={320} /></div>
           <span className="bl-name">{shown.name}</span>
         </div>
       </div>
 
       <div className="bl-wheel-clip" aria-hidden>
         <div className="bl-wheel">
-          {/* twelve spokes (each template twice) so the arc above the bottom edge is always full */}
+          {/* each card twice, so the arc above the bottom edge is always full */}
           {[...cards, ...cards].map((c, i) => (
-            <div key={i} className={`bl-spoke ${i % cards.length === now ? "away" : ""}`} style={{ ["--a" as string]: `${(360 / (cards.length * 2)) * i}deg` }}>
-              <div className="bl-card"><SitePreview data={c.data} projectId="__loader" accent={c.accent} width={220} height={136} /></div>
+            <div key={i} ref={(el) => { spokes.current[i] = el; }} className={`bl-spoke ${i % cards.length === now ? "away" : ""}`}>
+              <div className="bl-card"><SitePreview data={c.data} projectId={c.projectId ?? "__loader"} accent={c.accent} width={360} height={222} /></div>
             </div>
           ))}
         </div>
@@ -99,6 +132,3 @@ export default function BuildLoader({ ready, onDone, title = "Pascal is building
     document.body,
   );
 }
-
-/** resolves after at least `ms` since `since`; for flows that must not flash past */
-export const atLeast = (since: number, ms: number) => new Promise<void>((r) => setTimeout(r, Math.max(0, ms - (Date.now() - since))));

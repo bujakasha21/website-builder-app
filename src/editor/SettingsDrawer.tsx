@@ -4,7 +4,8 @@ import { usePuck, type Data } from "@puckeditor/core";
 import { useState } from "react";
 import { FONTS } from "@/lib/fonts";
 import { updateProject } from "@/lib/store";
-import { templatesFor } from "@/lib/templates";
+import { templateOf, templatesFor } from "@/lib/templates";
+import BuildLoader from "@/components/BuildLoader";
 import type { Project } from "@/lib/types";
 import { fileToDataUrl } from "./blocks";
 import { starterLegal } from "./extras";
@@ -48,6 +49,7 @@ const TABS = ["Look", "Menu", "Pop-up", "Disturber", "Languages", "Legal"] as co
 export default function SettingsDrawer({ project, onClose, initialTab }: { project: Project; onClose: () => void; initialTab?: (typeof TABS)[number] }) {
   const { appState, dispatch } = usePuck();
   const [tab, setTab] = useState<(typeof TABS)[number]>(initialTab ?? "Look");
+  const [switching, setSwitching] = useState<SiteSettings["template"] | null>(null);
   const s = withDefaults(appState.data.root.props as Record<string, unknown>);
   const set = (patch: Partial<SiteSettings>) => dispatch({ type: "setData", data: { ...appState.data, root: { ...appState.data.root, props: { ...s, ...patch } } } as Data });
   const setModal = (p: Partial<SiteSettings["modal"]>) => set({ modal: { ...s.modal, ...p } });
@@ -58,6 +60,7 @@ export default function SettingsDrawer({ project, onClose, initialTab }: { proje
 
   return (
     <aside className="st-drawer rise" aria-label="Site settings">
+      {switching ? <BuildLoader ready minMs={3000} first={switching} title={`Switching to ${templateOf(switching)?.name ?? "the new template"}`} lines={["Changing the fonts …", "Mixing the colours …", "Moving the sections …"]} onDone={() => setSwitching(null)} /> : null}
       <div className="st-head">
         <div><div className="eyebrow">Site settings</div><div className="st-title">{project.name}</div></div>
         <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close">×</button>
@@ -69,7 +72,7 @@ export default function SettingsDrawer({ project, onClose, initialTab }: { proje
         {tab === "Look" && (
           <>
             <Row label="Template" tip="Overall look. Switching keeps all content.">
-              <select className="select" value={s.template} onChange={(e) => set({ template: e.target.value as SiteSettings["template"] })}>{templatesFor(s.template).map((t) => <option key={t.id} value={t.id}>{t.name} – {t.note}</option>)}</select>
+              <select className="select" value={s.template} onChange={(e) => { const t = e.target.value as SiteSettings["template"]; set({ template: t }); setSwitching(t); }}>{templatesFor(s.template).map((t) => <option key={t.id} value={t.id}>{t.name} – {t.note}</option>)}</select>
             </Row>
             {flag("theme") ? <ThemeSection project={project} template={s.template} legacy={{ fontFamily: s.fontFamily, textScale: s.textScale }} /> : (
             <Row label="Text size" tip="Makes all text on the site a little smaller or larger. Headings and running text keep their proportions.">
